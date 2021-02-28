@@ -19,6 +19,8 @@ class Numeric(Serializable):
 
     @classmethod
     def deserialize(cls, data: bytes) -> 'Numeric':
+        if len(data) < cls().size:
+            raise ValueError(f"data too short")
         return cls(int.from_bytes(data[:cls().size], 'little', signed=cls.signed()))
 
     @classmethod
