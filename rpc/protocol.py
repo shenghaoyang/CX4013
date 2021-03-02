@@ -358,6 +358,80 @@ class RPCServer(DatagramProtocol):
         asyncio.create_task(self._process_task(data, addr))
 
 
+class ReplyRouter:
+    """
+    Class that's used for the ``RPCClient`` for routing replies by their transaction ID.
+    """
+    def __init__(self):
+        self._loop = asyncio.get_running_loop()
+        self._listeners: dict[int, asyncio.Future] = {}
+
+    def _remove_listeners(self, txid: int = None):
+        """
+        Remove listeners waiting on a transaction.
+
+        Associated futures will be cancelled to avoid resource leaks.
+
+        :param txid: transaction id. ``None`` targets all listeners.
+        """
+        if txid is None:
+            for f in self._listeners.values():
+                f.cancel()
+            self._listeners = {}
+            return
+
+        self._listeners[txid].cancel()
+        del self._listeners[txid]
+
+    def raise_on_listeners(self, e: Exception, txid: int = None):
+        """
+        Raise an exception on listeners waiting for a given transaction id.
+
+        :param e: exception to raise.
+        :param txid: transaction id. ``None`` targets all listeners.
+        """
+        if txid is None:
+            for f in self._listeners.values():
+                f.set_exception(e)
+            return
+
+        self._listeners[txid].set_exception(e)
+
+    def route(self, hdr: PacketHeader, payload: bytes) -> bool:
+        """
+        Route a packet to the listener waiting for it.
+
+        There may be no listener for a packet. In that case, the packet is
+        discarded.
+
+        :param hdr: packet header.
+        :param payload: packet payload.
+        :return: whether the packet was routed to its listener.
+        """
+        txid = hdr.trans_num.value
+        if txid not in self._listeners:
+            return False
+
+        self._listeners[txid].set_result((hdr, payload))
+        return True
+
+    async def listen(self, txid: int) -> tuple[PacketHeader, bytes]:
+        """
+        Wait for a reply packet with a given transaction ID.
+
+        :param txid: transaction ID of reply to wait for.
+        :return: reply packet.
+        """
+        if txid in self._listeners:
+            raise ValueError(f"{txid} has another listener")
+
+        fut = self._loop.create_future()
+        self._listeners[txid] = fut
+        fut.add_done_callback(lambda _: self._remove_listeners(txid))
+
+        return await fut
+
+
 class RPCClient(DatagramProtocol):
     def __init__(self, peer_adr: AddressType):
         """
@@ -368,6 +442,7 @@ class RPCClient(DatagramProtocol):
         self._txid = TransactionID.random()
         self._cid: int = 0
         self._peer = peer_adr
+        self._router = ReplyRouter()
         self._incoming_queue = asyncio.Queue()
         self._connected_event = asyncio.Event()
         self._transport: Optional[transports.DatagramTransport] = None
@@ -403,7 +478,7 @@ class RPCClient(DatagramProtocol):
         if hdr.client_id.value != self._cid:
             return
 
-        self._incoming_queue.put_nowait((hdr, payload))
+        self._router.route(hdr, payload)
 
     def datagram_received(self, data: bytes, addr: AddressType):
         if addr != self._peer:
@@ -431,16 +506,17 @@ class RPCClient(DatagramProtocol):
         :param semantics: method invocation semantics.
         :return: serialized return value for the remote method.
         """
+        tid = self._txid.next().copy()
         hdr = PacketHeader(
             u32(self._cid),
-            trans_num=self._txid.next(),
+            trans_num=tid,
             semantics=semantics,
             method_ordinal=u32(ordinal),
         )
         self._transport.sendto(hdr.serialize() + args, self._peer)
 
         while True:
-            rhdr, payload = await self._incoming_queue.get()
+            rhdr, payload = await self._router.listen(tid.value)
             rhdr = cast(PacketHeader, rhdr)
 
             # filter replies that we don't want
