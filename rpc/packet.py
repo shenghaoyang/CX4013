@@ -19,18 +19,19 @@ from serialization.numeric import u32
 #    Bit 1: Replayed reply flag (set when server is resending cached reply)
 #    Bit 2: Reply ACK flag (used to drop cached reply)
 #    Bit 3: Change CID flag (set by server when replying with a new CID, bootstraping for CID == 0 clients)
-#    Bit 4:5: Invocation semantics
+#    Bit 4: PING flag
+#    Bit 5: RST flag
+#    Bit 6:7: Invocation semantics
 #        0: At least once
 #        1: At most once
 #        2: Reserved
 #        3: Reliable transport semantics
-#    Bit 6:7: Reserved
-# Byte 9-12: Method ordinal
+# Byte 9-12: Method ordinal, u32
 # If request:
-#   Serialized arguments
+#   Byte 13:End: Serialized arguments
 # If response:
-#   Execution status
-#   Serialized response
+#   Byte 13: Execution status
+#   Byte 14:End: Serialized response
 
 
 class TransactionID(u32):
@@ -69,6 +70,10 @@ class PacketFlags(Flag):
     # Packet contains new CID for the client.
     # Client should only change if it was previously using a CID of 0.
     CHANGE_CID = 1 << 3
+    # Packet is a PING reply / request.
+    PING = 1 << 4
+    # Packet is a RESET.
+    RST = 1 << 5
 
 
 class ExecutionStatus(Enum):
@@ -177,8 +182,8 @@ class PacketHeader:
         tid = u32.deserialize(data[off:])
         off += tid.size
 
-        flags = PacketFlags(data[off] & 0x0F)
-        semantics = InvocationSemantics((data[off] & 0x30) >> 4)
+        flags = PacketFlags(data[off] & 0x3F)
+        semantics = InvocationSemantics(data[off] >> 6)
 
         off += 1
         ordinal = u32.deserialize(data[off:])
@@ -240,7 +245,7 @@ class PacketHeader:
         out = bytearray()
         out.extend(self.client_id.serialize())
         out.extend(self.trans_num.serialize())
-        out.append(self.flags.value | (self.semantics.value << 4))
+        out.append(self.flags.value | (self.semantics.value << 6))
         out.extend(self.method_ordinal.serialize())
 
         return out
