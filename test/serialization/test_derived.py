@@ -108,6 +108,8 @@ class TestUnion:
 
     def test_value_and_name_property(self, simple_union: PointOrPointArray):
         assert simple_union.name == "point_array"
+        assert "point_array" in simple_union
+        assert "point" not in simple_union
         assert type(simple_union.value) is PointArray
 
         point = Point()

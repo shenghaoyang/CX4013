@@ -167,6 +167,9 @@ class Union_(Serializable):
     def __init__(self, name: str, value: Serializable):
         self[name] = value
 
+    def __contains__(self, item: str) -> bool:
+        return self.name == item
+
     def __getitem__(self, name: str) -> Serializable:
         if self._name != name:
             raise KeyError(f"{name} not in union")
