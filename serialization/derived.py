@@ -314,7 +314,7 @@ class String(Serializable):
     Class representing a CAL RPC String.
     """
 
-    def __init__(self, val: str):
+    def __init__(self, val: str = ""):
         self.value = val
 
     @classmethod
