@@ -289,7 +289,7 @@ class RPCServer(DatagramProtocol):
 
         :param to: address of target.
         """
-        hdr = PacketHeader(flags=PacketFlags.RST)
+        hdr = PacketHeader(flags=PacketFlags.RST | PacketFlags.REPLY)
         self._transport.sendto(hdr.serialize(), to)
 
     async def _process_task(self, data: bytes, addr: AddressType):
@@ -442,6 +442,7 @@ class RPCClient(DatagramProtocol):
         self._txid = TransactionID.random()
         self._cid: int = 0
         self._peer = peer_adr
+        self._closed = False
         self._router = ReplyRouter()
         self._incoming_queue = asyncio.Queue()
         self._connected_event = asyncio.Event()
@@ -451,6 +452,12 @@ class RPCClient(DatagramProtocol):
         self._transport = transport
         # Obtain an ID.
         self._transport.sendto(PacketHeader().serialize(), self._peer)
+
+    def __bool__(self) -> bool:
+        """
+        Returns ``True`` if the client can be used for RPC calls.
+        """
+        return self._connected_event.is_set()
 
     async def _process_task(self, data: bytes):
         """
@@ -468,6 +475,7 @@ class RPCClient(DatagramProtocol):
             return
 
         if not self._connected_event.is_set():
+            # todo do we want to ignore RSTs?
             if not (hdr.flags & PacketFlags.CHANGE_CID):
                 return
 
@@ -475,12 +483,30 @@ class RPCClient(DatagramProtocol):
             self._connected_event.set()
             return
 
+        if hdr.flags & PacketFlags.RST:
+            self._router.raise_on_listeners(exceptions.ConnectionClosedError())
+            self._connected_event.clear()
+            self._closed = True
+            return
+
         if hdr.client_id.value != self._cid:
             return
 
         self._router.route(hdr, payload)
 
+    @property
+    def closed(self) -> bool:
+        """
+        Check if the connection has been closed.
+
+        A connection cannot be reused if it has been closed.
+        """
+        return self._closed
+
     def datagram_received(self, data: bytes, addr: AddressType):
+        if self.closed:
+            return
+
         if addr != self._peer:
             return
 
@@ -489,7 +515,12 @@ class RPCClient(DatagramProtocol):
     async def wait_connected(self):
         """
         Wait till the RPC client is connected.
+
+        :raises exceptions.ConnectionClosedError: if the connection has been closed.
         """
+        if self.closed:
+            raise exceptions.ConnectionClosedError()
+
         await self._connected_event.wait()
 
     async def call(
@@ -501,11 +532,17 @@ class RPCClient(DatagramProtocol):
         """
         Call a remote method.
 
+        Will wait for a connection to be established if not already connected.
+
         :param ordinal: ordinal of the remote method.
         :param args: serialized arguments for the remote method.
         :param semantics: method invocation semantics.
         :return: serialized return value for the remote method.
+        :raises exceptions.RPCConnectionClosedError: if the connection has been closed.
         """
+        if not self:
+            await self.wait_connected()
+
         tid = self._txid.next().copy()
         hdr = PacketHeader(
             u32(self._cid),
@@ -536,3 +573,13 @@ class RPCClient(DatagramProtocol):
                 raise excc()
 
             return payload[1:]
+
+    def close(self):
+        """
+        Close the connection.
+
+        Safe to call if already closed.
+        """
+        self._router.raise_on_listeners(exceptions.ConnectionClosedError())
+        self._connected_event.clear()
+        self._closed = True

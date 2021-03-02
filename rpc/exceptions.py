@@ -13,10 +13,11 @@ class RPCError(Exception):
     pass
 
 
-class RPCConnectionResetError(RPCError, ConnectionResetError):
+class ConnectionClosedError(RPCError):
     """
-    Server reset the RPC connection.
+    RPC connection is closed.
     """
+    pass
 
 
 class BadRequestError(RPCError):
