@@ -181,7 +181,7 @@ class RPCObjectServer:
         :return: serialized method results.
         """
         # noinspection PyProtectedMember
-        return self._skel._call_by_ordinal(ordinal, args)
+        return await self._skel._call_by_ordinal(ordinal, args)
 
     async def _call_amo(
         self, tid: int, ordinal: int, args: bytes

@@ -13,11 +13,11 @@ from rpc.exceptions import (
 )
 from rpc.common import RemoteMethod, RemoteInterface, is_remotemethod
 from serialization.common import Serializable
-from typing import Callable, Type, cast, Union
-
+from typing import Type, cast, Union, Callable
+from collections import Awaitable
 
 # Signature of a method defined on an instance of a Skeleton class.
-SkeletonMethod = Callable[["Skeleton", bytes], bytes]
+SkeletonMethod = Callable[["Skeleton", bytes], Awaitable[bytes]]
 
 
 class Skeleton:
@@ -36,7 +36,7 @@ class Skeleton:
         """
         self._impl = impl
 
-    def _call_by_ordinal(self, ordinal: int, arguments: bytes) -> bytes:
+    async def _call_by_ordinal(self, ordinal: int, arguments: bytes) -> bytes:
         """
         Call a method by specifying its ordinal.
 
@@ -47,7 +47,7 @@ class Skeleton:
         if not (0 <= ordinal < len(self._method_list)):
             raise MethodNotFoundError(ordinal)
 
-        return self._method_list[ordinal](self, arguments)
+        return await self._method_list[ordinal](self, arguments)
 
 
 def wrap(
@@ -94,7 +94,7 @@ def wrap(
 
     # wrapper function that's actually bound as a method of the skeleton class.
     # closures are so *nice*.
-    def wrapper(self: Skeleton, serialized_arguments: bytes) -> bytes:
+    async def wrapper(self: Skeleton, serialized_arguments: bytes) -> bytes:
         off = 0
         arguments = []
         for i, argtype in enumerate(argtypes):
@@ -106,7 +106,7 @@ def wrap(
                 ) from e
             off += arguments[-1].size
 
-        ret = remote_method(self._impl, *arguments)
+        ret = await remote_method(self._impl, *arguments)
 
         if type(ret) is not returntype:
             raise InternalServerFailureError(

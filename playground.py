@@ -35,7 +35,7 @@ from rpc.proxy import generate_proxy
 from rpc.common import remotemethod, RemoteInterface
 from rpc.packet import InvocationSemantics
 from serialization.derived import String, create_union_type
-from serialization.numeric import i64
+from serialization.numeric import i64, u8
 
 
 # Declare any types that you may want to use.
@@ -49,20 +49,25 @@ ErrorOri64 = create_union_type('ErrorOri64',
 # You might want to use an interface if you want to hide the implementation details.
 class ARemoteObject(RemoteInterface):
     @remotemethod
-    def reverse(self, s: String) -> String:
+    async def reverse(self, s: String) -> String:
         return String("".join(reversed(s.value)))
 
     @remotemethod
-    def time(self) -> String:
+    async def time(self) -> String:
         return String(time.ctime())
 
     @remotemethod
-    def add(self, v1: i64, v2: i64) -> ErrorOri64:
+    async def add(self, v1: i64, v2: i64) -> ErrorOri64:
         try:
             return ErrorOri64('i64', i64(v1.value + v2.value))
         except OverflowError as e:
             # Return erorr on overflow.
             return ErrorOri64('error', String(str(e)))
+
+    @remotemethod
+    async def long_computation(self, key: u8) -> u8:
+        await asyncio.sleep(10)
+        return key
 
 
 async def server():
