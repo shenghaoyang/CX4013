@@ -13,6 +13,12 @@ class RPCError(Exception):
     pass
 
 
+class RPCConnectionResetError(RPCError, ConnectionResetError):
+    """
+    Server reset the RPC connection.
+    """
+
+
 class BadRequestError(RPCError):
     """
     Client's request packet was malformed.

@@ -203,22 +203,18 @@ class RPCObjectServer:
 
         return res, False
 
-    async def process(self, packet: bytes) -> Optional[bytes]:
+    async def process(self, hdr: PacketHeader, payload: bytes) -> Optional[bytes]:
         """
         Process a single RPC request packet.
 
-        :param packet: packet data.
+        :param hdr: packet header.
+        :param payload: packet payload.
         :return: reply packet. ``None`` if no reply can be generated.
         """
         # todo scheduled task may be better
         self._result_cache.ageout()
 
-        try:
-            hdr = PacketHeader.deserialize(packet)
-            args = packet[hdr.LENGTH :]
-        except ValueError:
-            # Nothing we can do, packet cannot be decoded.
-            return None
+        args = payload
 
         # Bad header
         if hdr.is_reply:
@@ -278,13 +274,23 @@ class RPCServer(DatagramProtocol):
         """
         # todo figure out how to age out clients
         self._skel_fac = skel_fac
-        self._clients: dict[AddressType, RPCObjectServer] = {}
+        # maps addresses to cid, server instance.
+        self._clients: dict[AddressType, tuple[int, RPCObjectServer]] = {}
         # todo actually reserve
         self._cid_last = 0
         self._transport: Optional[transports.DatagramTransport] = None
 
     def connection_made(self, transport: transports.DatagramTransport) -> None:
         self._transport = transport
+
+    async def _send_rst(self, to: AddressType):
+        """
+        Send a RST datagram.
+
+        :param to: address of target.
+        """
+        hdr = PacketHeader(flags=PacketFlags.RST)
+        self._transport.sendto(hdr.serialize(), to)
 
     async def _process_task(self, data: bytes, addr: AddressType):
         """
@@ -294,32 +300,47 @@ class RPCServer(DatagramProtocol):
         """
         # not enough data to even get cid.
         # abort.
-        if len(data) < 4:
+        try:
+            hdr = PacketHeader.deserialize(data)
+            payload = data[hdr.LENGTH:]
+        except ValueError:
+            # Nothing we can do, packet cannot be decoded.
             return
 
-        cid = u32.deserialize(data[: u32().size]).value
-        fcid = addr, cid
+        cid = hdr.client_id.value
 
-        if fcid in self._clients:
-            ret = await self._clients[fcid].process(data)
+        if addr in self._clients:
+            scid, server = self._clients[addr]
+            if scid != cid:
+                # New client on the same network address
+                # erase old client
+                # todo: need to notify servers of shutdown!
+                del self._clients[addr]
+                # recurse to handle new connection.
+                return await self._process_task(data, addr)
+
+            ret = await server.process(hdr, payload)
             if ret is None:
                 return
 
             self._transport.sendto(ret, addr)
-
-        if cid:
-            # client using id we don't recognize and is not new conn.
             return
 
-        # new connection
+        # Address not known, cid not known
+        if cid:
+            # Client using cid to communicate with server that doesn't know it
+            # Send client reset.
+            await self._send_rst(addr)
+            return
+
+        # Client using CID 0, new connection.
         oserver = RPCObjectServer(self._skel_fac())
 
         # generate CID
         cid = self._cid_last + 1
         self._cid_last += 1
 
-        fcid = fcid[0], cid
-        self._clients[fcid] = oserver
+        self._clients[addr] = cid, oserver
 
         # register and send new CID
         rep = PacketHeader(
