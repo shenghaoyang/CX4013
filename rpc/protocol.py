@@ -303,6 +303,27 @@ class RPCServer(DatagramProtocol):
         hdr = PacketHeader(flags=PacketFlags.RST | PacketFlags.REPLY)
         self._transport.sendto(hdr.serialize(), to)
 
+    def _disconnect_client(self, client: AddressType = None, send_rst: bool = True):
+        """
+        Disconnect a client.
+
+        :param client: address of client to disconnect. Use ``None`` to disconnect all clients.
+        :param send_rst: whether to send reset to client.
+        """
+        if client is None:
+            for addr, (_, oserver) in self._clients.items():
+                self._send_rst(addr)
+                self._disconnect_callback(addr, oserver.skeleton)
+
+            self._clients = {}
+            return
+
+        _, oserver = self._clients[client]
+        if send_rst:
+            self._send_rst(client)
+        self._disconnect_callback(client, oserver.skeleton)
+        del self._clients[client]
+
     async def _process_task(self, data: bytes, addr: AddressType):
         """
         Task that actually processes the incoming datagram.
@@ -323,7 +344,7 @@ class RPCServer(DatagramProtocol):
         if addr in self._clients:
             # Disconnect on reset
             if hdr.flags & PacketFlags.RST:
-                self.disconnect_client(addr, False)
+                self._disconnect_client(addr, False)
                 return
 
             scid, server = self._clients[addr]
@@ -364,26 +385,13 @@ class RPCServer(DatagramProtocol):
         )
         self._transport.sendto(rep.serialize(), addr)
 
-    def disconnect_client(self, client: AddressType = None, send_rst: bool = True):
+    def disconnect_client(self, client: AddressType = None):
         """
         Disconnect a client.
 
         :param client: address of client to disconnect. Use ``None`` to disconnect all clients.
-        :param send_rst: whether to send reset to client.
         """
-        if client is None:
-            for addr, (_, oserver) in self._clients.items():
-                self._send_rst(addr)
-                self._disconnect_callback(addr, oserver.skeleton)
-
-            self._clients = {}
-            return
-
-        _, oserver = self._clients[client]
-        if send_rst:
-            self._send_rst(client)
-        self._disconnect_callback(client, oserver.skeleton)
-        del self._clients[client]
+        self._disconnect_client(client)
 
     def datagram_received(self, data: bytes, addr: AddressType):
         """
@@ -521,16 +529,33 @@ class RPCClient(DatagramProtocol):
             return
 
         if hdr.flags & PacketFlags.RST:
-            self._router.raise_on_listeners(exceptions.ConnectionClosedError())
-            self._connected_event.clear()
-            self._closed = True
-            self._transport.close()
+            self._close(False)
             return
 
         if hdr.client_id.value != self._cid:
             return
 
         self._router.route(hdr, payload)
+
+    def _close(self, send_rst: bool = True):
+        """
+        Close the connection.
+
+        Safe to call if already closed.
+
+        :param send_rst: whether to send a RST packet.
+        """
+        if self.closed:
+            return
+
+        if send_rst:
+            self._transport.sendto(PacketHeader(flags=PacketFlags.RST).serialize(), self._peer)
+
+        self._router.raise_on_listeners(exceptions.ConnectionClosedError())
+        self._connected_event.clear()
+        self._closed = True
+        self._transport.close()
+
 
     @property
     def closed(self) -> bool:
@@ -618,11 +643,4 @@ class RPCClient(DatagramProtocol):
 
         Safe to call if already closed.
         """
-        if self.closed:
-            return
-
-        self._transport.sendto(PacketHeader(flags=PacketFlags.RST).serialize(), self._peer)
-        self._router.raise_on_listeners(exceptions.ConnectionClosedError())
-        self._connected_event.clear()
-        self._closed = True
-        self._transport.close()
+        self._close()
