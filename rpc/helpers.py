@@ -14,9 +14,10 @@ from rpc.protocol import AddressType, RPCClient, RPCServer
 
 
 async def create_server(
-    laddr: AddressType, skel_factory: Callable[[AddressType], Skeleton],
-        disconnect_callback: Callable[[AddressType, Skeleton], None],
-        family=socket.AF_INET
+    laddr: AddressType,
+    skel_factory: Callable[[AddressType], Skeleton],
+    disconnect_callback: Callable[[AddressType, Skeleton], None],
+    family=socket.AF_INET,
 ) -> RPCServer:
     """
     Create a RPC server.

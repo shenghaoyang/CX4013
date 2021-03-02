@@ -50,9 +50,7 @@ class Skeleton:
         return await self._method_list[ordinal](self, arguments)
 
 
-def wrap(
-    remote_method: RemoteMethod
-) -> SkeletonMethod:
+def wrap(remote_method: RemoteMethod) -> SkeletonMethod:
     """
     Generate a method wrapping a remote method.
 

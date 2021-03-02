@@ -272,8 +272,11 @@ class RPCObjectServer:
 
 
 class RPCServer(DatagramProtocol):
-    def __init__(self, skel_fac: Callable[[AddressType], Skeleton],
-                 disconnect_callback: Callable[[AddressType, Skeleton], None]):
+    def __init__(
+        self,
+        skel_fac: Callable[[AddressType], Skeleton],
+        disconnect_callback: Callable[[AddressType, Skeleton], None],
+    ):
         """
         Create a new RPC server.
 
@@ -334,7 +337,7 @@ class RPCServer(DatagramProtocol):
         # abort.
         try:
             hdr = PacketHeader.deserialize(data)
-            payload = data[hdr.LENGTH:]
+            payload = data[hdr.LENGTH :]
         except ValueError:
             # Nothing we can do, packet cannot be decoded.
             return
@@ -407,6 +410,7 @@ class ReplyRouter:
     """
     Class that's used for the ``RPCClient`` for routing replies by their transaction ID.
     """
+
     def __init__(self):
         self._loop = asyncio.get_running_loop()
         self._listeners: dict[int, asyncio.Future] = {}
@@ -549,13 +553,14 @@ class RPCClient(DatagramProtocol):
             return
 
         if send_rst:
-            self._transport.sendto(PacketHeader(flags=PacketFlags.RST).serialize(), self._peer)
+            self._transport.sendto(
+                PacketHeader(flags=PacketFlags.RST).serialize(), self._peer
+            )
 
         self._router.raise_on_listeners(exceptions.ConnectionClosedError())
         self._connected_event.clear()
         self._closed = True
         self._transport.close()
-
 
     @property
     def closed(self) -> bool:

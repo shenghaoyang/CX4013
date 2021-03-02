@@ -41,9 +41,7 @@ from serialization.numeric import i64, u8
 
 
 # Declare any types that you may want to use.
-ErrorOri64 = create_union_type('ErrorOri64',
-                               (('i64', i64),
-                                ('error', String)))
+ErrorOri64 = create_union_type("ErrorOri64", (("i64", i64), ("error", String)))
 
 
 # Declare remote interface.
@@ -61,10 +59,10 @@ class ARemoteObject(RemoteInterface):
     @remotemethod
     async def add(self, v1: i64, v2: i64) -> ErrorOri64:
         try:
-            return ErrorOri64('i64', i64(v1.value + v2.value))
+            return ErrorOri64("i64", i64(v1.value + v2.value))
         except OverflowError as e:
             # Return erorr on overflow.
-            return ErrorOri64('error', String(str(e)))
+            return ErrorOri64("error", String(str(e)))
 
     @remotemethod
     async def long_computation(self, key: u8) -> u8:
@@ -90,12 +88,12 @@ async def server():
     # on the same object, but having a factory allows for new objects for every
     # client, etc.
     def skel_fac(addr: AddressType) -> Skeleton:
-        logger.info(f'new connection from {addr}')
+        logger.info(f"new connection from {addr}")
         return sm_skel
 
     # Function that accepts a skeleton and an address on disconnection.
     def disconnect_callback(addr: AddressType, skel: Skeleton):
-        logger.info(f'client {addr} disconnected')
+        logger.info(f"client {addr} disconnected")
 
     # Create the server and wait for it to be up.
     s = await create_server(("127.0.0.1", 5000), skel_fac, disconnect_callback)
@@ -131,11 +129,11 @@ async def client():
             inputs = [int(await ainput(f"Enter number {i}: ")) for i in range(2)]
             operands = tuple(map(i64, inputs))
             res = await proxy.add(*operands)
-            if 'error' in res:
-                await aprint("Addition failed:", res['error'].value)
+            if "error" in res:
+                await aprint("Addition failed:", res["error"].value)
                 return
 
-            await aprint(' + '.join(map(str, inputs)), '=', res['i64'].value)
+            await aprint(" + ".join(map(str, inputs)), "=", res["i64"].value)
 
         except (ValueError, OverflowError):
             await aprint("Inputs are not numeric / out of range")
@@ -147,13 +145,19 @@ async def client():
         client.close()
         exit(1)
 
-    labels = ("Reverse a string", "Get current time", "Add two numbers", "Perform long RPC (10s)", "Exit")
+    labels = (
+        "Reverse a string",
+        "Get current time",
+        "Add two numbers",
+        "Perform long RPC (10s)",
+        "Exit",
+    )
     handlers = (do_reverse, do_time, do_add, do_long_rpc, do_exit)
 
     # Call functions on the remote.
     # Use aprint and await for printing data.
     while True:
-        await aprint('\n'.join(f"{i}: {s}" for i, s in enumerate(labels)))
+        await aprint("\n".join(f"{i}: {s}" for i, s in enumerate(labels)))
         try:
             selection = int(await ainput(">>> "))
             await handlers[selection]()

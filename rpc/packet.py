@@ -41,7 +41,7 @@ class TransactionID(u32):
     """
 
     @classmethod
-    def random(cls: Type['TransactionID']) -> "TransactionID":
+    def random(cls: Type["TransactionID"]) -> "TransactionID":
         """
         Create a random Transaction ID.
         """

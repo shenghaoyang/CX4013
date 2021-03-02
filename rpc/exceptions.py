@@ -17,6 +17,7 @@ class ConnectionClosedError(RPCError):
     """
     RPC connection is closed.
     """
+
     pass
 
 
