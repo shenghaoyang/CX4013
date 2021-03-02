@@ -25,15 +25,17 @@ Run the client:
 """
 
 
+import logging
 import asyncio
 import os
 import time
 from aioconsole import aprint, ainput
 from rpc.helpers import create_server, create_and_connect_client
-from rpc.skeleton import generate_skeleton
+from rpc.skeleton import generate_skeleton, Skeleton
 from rpc.proxy import generate_proxy
 from rpc.common import remotemethod, RemoteInterface
 from rpc.packet import InvocationSemantics
+from rpc.protocol import AddressType
 from serialization.derived import String, create_union_type
 from serialization.numeric import i64, u8
 
@@ -71,6 +73,10 @@ class ARemoteObject(RemoteInterface):
 
 
 async def server():
+    logging.basicConfig()
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+
     # Create the remote object
     ro = ARemoteObject()
     # Generate the skeleton on the remote class
@@ -83,11 +89,16 @@ async def server():
     # We return the same skeleton object everytime, so that every client operates
     # on the same object, but having a factory allows for new objects for every
     # client, etc.
-    def skel_fac():
+    def skel_fac(addr: AddressType) -> Skeleton:
+        logger.info(f'new connection from {addr}')
         return sm_skel
 
+    # Function that accepts a skeleton and an address on disconnection.
+    def disconnect_callback(addr: AddressType, skel: Skeleton):
+        logger.info(f'client {addr} disconnected')
+
     # Create the server and wait for it to be up.
-    s = await create_server(("127.0.0.1", 5000), skel_fac)
+    s = await create_server(("127.0.0.1", 5000), skel_fac, disconnect_callback)
     # Sleep for one hour and serve the remote object.
     await asyncio.sleep(3600)
 
@@ -97,7 +108,7 @@ async def client():
     Proxy = generate_proxy(ARemoteObject)
     # Pass the proxy to the connection function.
     # When this coroutine completes, the client is connected.
-    proxy = await create_and_connect_client(("127.0.0.1", 5000), Proxy)
+    client, proxy = await create_and_connect_client(("127.0.0.1", 5000), Proxy)
 
     # Set invocation semantics if required, defaults to at least once.
     # The interface for setting these would probably change because they
@@ -129,12 +140,20 @@ async def client():
         except (ValueError, OverflowError):
             await aprint("Inputs are not numeric / out of range")
 
-    handlers = [do_reverse, do_time, do_add]
+    async def do_long_rpc():
+        await proxy.long_computation(u8())
+
+    async def do_exit():
+        client.close()
+        exit(1)
+
+    labels = ("Reverse a string", "Get current time", "Add two numbers", "Perform long RPC (10s)", "Exit")
+    handlers = (do_reverse, do_time, do_add, do_long_rpc, do_exit)
 
     # Call functions on the remote.
     # Use aprint and await for printing data.
     while True:
-        await aprint("Select an option:\n0: Reverse a string\n1: Get current time\n2: Add two numbers")
+        await aprint('\n'.join(f"{i}: {s}" for i, s in enumerate(labels)))
         try:
             selection = int(await ainput(">>> "))
             await handlers[selection]()

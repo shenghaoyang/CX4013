@@ -203,6 +203,13 @@ class RPCObjectServer:
 
         return res, False
 
+    @property
+    def skeleton(self) -> Skeleton:
+        """
+        Retrieve the skeleton used by this server.
+        """
+        return self._skel
+
     async def process(self, hdr: PacketHeader, payload: bytes) -> Optional[bytes]:
         """
         Process a single RPC request packet.
@@ -265,15 +272,19 @@ class RPCObjectServer:
 
 
 class RPCServer(DatagramProtocol):
-    def __init__(self, skel_fac: Callable[[], Skeleton]):
+    def __init__(self, skel_fac: Callable[[AddressType], Skeleton],
+                 disconnect_callback: Callable[[AddressType, Skeleton], None]):
         """
         Create a new RPC server.
 
         :param skel_fac: skeleton factory generating skeletons that this server
             sends received RPC requests to.
+        :param disconnect_callback: callback that will be invoked on client disconnections.
         """
+        # todo client disconnect notifications
         # todo figure out how to age out clients
         self._skel_fac = skel_fac
+        self._disconnect_callback = disconnect_callback
         # maps addresses to cid, server instance.
         self._clients: dict[AddressType, tuple[int, RPCObjectServer]] = {}
         # todo actually reserve
@@ -283,7 +294,7 @@ class RPCServer(DatagramProtocol):
     def connection_made(self, transport: transports.DatagramTransport) -> None:
         self._transport = transport
 
-    async def _send_rst(self, to: AddressType):
+    def _send_rst(self, to: AddressType):
         """
         Send a RST datagram.
 
@@ -310,6 +321,11 @@ class RPCServer(DatagramProtocol):
         cid = hdr.client_id.value
 
         if addr in self._clients:
+            # Disconnect on reset
+            if hdr.flags & PacketFlags.RST:
+                self.disconnect_client(addr, False)
+                return
+
             scid, server = self._clients[addr]
             if scid != cid:
                 # New client on the same network address
@@ -330,11 +346,11 @@ class RPCServer(DatagramProtocol):
         if cid:
             # Client using cid to communicate with server that doesn't know it
             # Send client reset.
-            await self._send_rst(addr)
+            self._send_rst(addr)
             return
 
         # Client using CID 0, new connection.
-        oserver = RPCObjectServer(self._skel_fac())
+        oserver = RPCObjectServer(self._skel_fac(addr))
 
         # generate CID
         cid = self._cid_last + 1
@@ -347,6 +363,27 @@ class RPCServer(DatagramProtocol):
             client_id=u32(cid), flags=(PacketFlags.REPLY | PacketFlags.CHANGE_CID)
         )
         self._transport.sendto(rep.serialize(), addr)
+
+    def disconnect_client(self, client: AddressType = None, send_rst: bool = True):
+        """
+        Disconnect a client.
+
+        :param client: address of client to disconnect. Use ``None`` to disconnect all clients.
+        :param send_rst: whether to send reset to client.
+        """
+        if client is None:
+            for addr, (_, oserver) in self._clients.items():
+                self._send_rst(addr)
+                self._disconnect_callback(addr, oserver.skeleton)
+
+            self._clients = {}
+            return
+
+        _, oserver = self._clients[client]
+        if send_rst:
+            self._send_rst(client)
+        self._disconnect_callback(client, oserver.skeleton)
+        del self._clients[client]
 
     def datagram_received(self, data: bytes, addr: AddressType):
         """
@@ -487,6 +524,7 @@ class RPCClient(DatagramProtocol):
             self._router.raise_on_listeners(exceptions.ConnectionClosedError())
             self._connected_event.clear()
             self._closed = True
+            self._transport.close()
             return
 
         if hdr.client_id.value != self._cid:
@@ -580,6 +618,11 @@ class RPCClient(DatagramProtocol):
 
         Safe to call if already closed.
         """
+        if self.closed:
+            return
+
+        self._transport.sendto(PacketHeader(flags=PacketFlags.RST).serialize(), self._peer)
         self._router.raise_on_listeners(exceptions.ConnectionClosedError())
         self._connected_event.clear()
         self._closed = True
+        self._transport.close()
