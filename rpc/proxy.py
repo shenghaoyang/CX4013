@@ -73,7 +73,7 @@ class Proxy(ABC):
         for i in range(tries):
             try:
                 return await asyncio.wait_for(
-                    self._client.call(ordinal, arguments), timeout
+                    self._client.call(ordinal, arguments, self._semantics), timeout
                 )
             except asyncio.TimeoutError:
                 continue

@@ -7,7 +7,7 @@ RPC protocol handler implementations.
 
 import time
 import asyncio
-import socket
+import random
 from asyncio import DatagramProtocol, transports
 from typing import Optional, TypeVar, Hashable, Callable, Iterator, Union, cast
 from collections.abc import MutableMapping
@@ -284,14 +284,11 @@ class RPCServer(DatagramProtocol):
             sends received RPC requests to.
         :param disconnect_callback: callback that will be invoked on client disconnections.
         """
-        # todo client disconnect notifications
         # todo figure out how to age out clients
         self._skel_fac = skel_fac
         self._disconnect_callback = disconnect_callback
         # maps addresses to cid, server instance.
         self._clients: dict[AddressType, tuple[int, RPCObjectServer]] = {}
-        # todo actually reserve
-        self._cid_last = 0
         self._transport: Optional[transports.DatagramTransport] = None
 
     def connection_made(self, transport: transports.DatagramTransport) -> None:
@@ -355,7 +352,7 @@ class RPCServer(DatagramProtocol):
                 # New client on the same network address
                 # erase old client
                 # todo: need to notify servers of shutdown!
-                del self._clients[addr]
+                self.disconnect_client(addr)
                 # recurse to handle new connection.
                 return await self._process_task(data, addr)
 
@@ -377,8 +374,9 @@ class RPCServer(DatagramProtocol):
         oserver = RPCObjectServer(self._skel_fac(addr))
 
         # generate CID
-        cid = self._cid_last + 1
-        self._cid_last += 1
+        # use a random one to avoid collisions with previously connected
+        # clients.
+        cid = random.randint(u32.min() + 1, u32.max())
 
         self._clients[addr] = cid, oserver
 
@@ -597,6 +595,7 @@ class RPCClient(DatagramProtocol):
         args: bytes,
         semantics: InvocationSemantics = InvocationSemantics.AT_LEAST_ONCE,
     ) -> bytes:
+        # todo we want to propagate any "resend" info
         """
         Call a remote method.
 
@@ -621,13 +620,9 @@ class RPCClient(DatagramProtocol):
         self._transport.sendto(hdr.serialize() + args, self._peer)
 
         while True:
+            # shouldn't race because it's single threaded, and we don't hit an await
+            # till the future gets submitted.
             rhdr, payload = await self._router.listen(tid.value)
-            rhdr = cast(PacketHeader, rhdr)
-
-            # filter replies that we don't want
-            # next time -> adopt the futures mechanism like we had in the other impl.
-            if rhdr.trans_num.value != hdr.trans_num.value:
-                continue
 
             if not len(payload):
                 raise exceptions.InvalidReplyError("zero-length payload")
@@ -635,6 +630,13 @@ class RPCClient(DatagramProtocol):
                 status = ExecutionStatus(payload[0])
             except ValueError:
                 raise exceptions.InvalidReplyError("execution status")
+
+            if semantics is InvocationSemantics.AT_MOST_ONCE:
+                # send acknowledgement to optimize result storage
+                # doesn't matter if it gets lost because the server will age it
+                # out anyway.
+                hdr.flags |= PacketFlags.ACK_REPLY
+                self._transport.sendto(hdr.serialize(), self._peer)
 
             excc = estatus_to_exception(status)
             if excc is not None:
