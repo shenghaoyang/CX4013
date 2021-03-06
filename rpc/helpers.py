@@ -14,13 +14,17 @@ from rpc.protocol import AddressType, RPCClient, RPCServer
 
 
 async def create_server(
-    laddr: AddressType, skel_factory: Callable[[], Skeleton], family=socket.AF_INET
+    laddr: AddressType,
+    skel_factory: Callable[[AddressType], Skeleton],
+    disconnect_callback: Callable[[AddressType, Skeleton], None],
+    family=socket.AF_INET,
 ) -> RPCServer:
     """
     Create a RPC server.
 
     :param laddr: local address of the server.
     :param skel_factory: skeleton factory function.
+    :param disconnect_callback: disconnection callback.
     :param family: server address family.
 
     :return: newly created RPC server.
@@ -28,7 +32,7 @@ async def create_server(
     loop = asyncio.get_running_loop()
 
     def pf():
-        return RPCServer(skel_factory)
+        return RPCServer(skel_factory, disconnect_callback)
 
     t, s = await loop.create_datagram_endpoint(
         local_addr=laddr, family=family, protocol_factory=pf
@@ -42,7 +46,7 @@ async def create_and_connect_client(
     raddr: AddressType,
     proxy_factory: Callable[[RPCClient], Proxy],
     family=socket.AF_INET,
-) -> Proxy:
+) -> tuple[RPCClient, Proxy]:
     """
     Create a new RPC client.
 
@@ -64,4 +68,4 @@ async def create_and_connect_client(
     c = cast(RPCClient, c)
     await c.wait_connected()
 
-    return proxy_factory(c)
+    return c, proxy_factory(c)

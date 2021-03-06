@@ -33,31 +33,32 @@ Run the client:
 """
 
 
+import logging
 import asyncio
 import os
 import time
 from aioconsole import aprint, ainput
 from rpc.helpers import create_server, create_and_connect_client
-from rpc.skeleton import generate_skeleton
+from rpc.protocol import AddressType
+from rpc.skeleton import generate_skeleton, Skeleton
 from rpc.proxy import generate_proxy
 from rpc.common import remotemethod, RemoteInterface
 from rpc.packet import InvocationSemantics
 from serialization.derived import String, create_union_type, Array
-from serialization.numeric import i64
-from tinydb.tinydb import TinyDB, Query
+from serialization.numeric import i64, u8
+from tinydb import TinyDB, Query
 
 
 # Declare any types that you may want to use.
-ErrorOri64 = create_union_type('ErrorOri64',
-                               (('i64', i64),
-                                ('error', String),
-                                ('array', Array)))
+ErrorOri64 = create_union_type(
+    "ErrorOri64", (("i64", i64), ("error", String), ("array", Array))
+)
 
 
 # Declare remote interface.
 # We use an implementation here because it doesn't really matter.
 # You might want to use an interface if you want to hide the implementation details.
-class Table():
+class Table:
     def __init__(self):
         self.availTable = [[[0 for i in range(48)] for j in range(7)] for k in range(3)]
 
@@ -69,7 +70,7 @@ class Table():
         return searched
 
     def booking(self, nameSlot, daySlot, startSlot, endSlot):
-        #check if available
+        # check if available
         for i in range(startSlot, endSlot):
             if self.availTable[nameSlot][daySlot][i] == 1:
                 raise Exception("Conflict booking")
@@ -81,12 +82,13 @@ class Table():
 
         return bookingID
 
-class BookingList():
+
+class BookingList:
     def __init__(self):
-        #list: (bookingID, name, startslot, endslot)
+        # list: (bookingID, name, startslot, endslot)
         self.bookingID
-        self.bookingList = []    
-    
+        self.bookingList = []
+
     def setBookingList(name, daySlot, startSlot, endSlot):
 
         return bookingID
@@ -94,7 +96,8 @@ class BookingList():
     def modifyBookingList(bookingID, name, daySlot, newStartSlot, newEndSlot):
         return True
 
-class Msc():
+
+class Msc:
     def name2Num(name):
         if name == "Meeting Room":
             return 0
@@ -121,15 +124,15 @@ class Msc():
         elif day == "Sunday":
             return 6
         else:
-           raise Exception("Invalid day")
+            raise Exception("Invalid day")
 
     def time2slot(hour, min):
         # 0 0000-0030
         # 1 0030-0100
         # 47 2330-0000
-        
+
         slot = hour * 2
-        if(min == 30):
+        if min == 30:
             slot = slot + 1
         return slot
 
@@ -137,27 +140,30 @@ class Msc():
             raise Exception("Not Valid Slot")
 
 
-        
-
 class ARemoteObject(RemoteInterface):
     @remotemethod
-    def reverse(self, s: String) -> String:
+    async def reverse(self, s: String) -> String:
         return String("".join(reversed(s.value)))
 
     @remotemethod
-    def time(self) -> String:
+    async def time(self) -> String:
         return String(time.ctime())
 
     @remotemethod
-    def add(self, v1: i64, v2: i64) -> ErrorOri64:
+    async def add(self, v1: i64, v2: i64) -> ErrorOri64:
         try:
-            return ErrorOri64('i64', i64(v1.value + v2.value))
+            return ErrorOri64("i64", i64(v1.value + v2.value))
         except OverflowError as e:
             # Return erorr on overflow.
-            return ErrorOri64('error', String(str(e)))
+            return ErrorOri64("error", String(str(e)))
 
     @remotemethod
-    def avail(self, name: String, day: String) -> Array:
+    async def long_computation(self, key: u8) -> u8:
+        await asyncio.sleep(10)
+        return key
+
+    @remotemethod
+    async def avail(self, name: String, day: String) -> Array:
         try:
             nameNum = Msc.name2Num(name)
             dayNum = Msc.day2Num(day)
@@ -167,7 +173,15 @@ class ARemoteObject(RemoteInterface):
             print("Error at input", e)
 
     @remotemethod
-    def book(self, name: String, day: String, startHour: i64, startMin: i64, endHour: i64, endMin: i64) -> i64:
+    async def book(
+        self,
+        name: String,
+        day: String,
+        startHour: i64,
+        startMin: i64,
+        endHour: i64,
+        endMin: i64,
+    ) -> i64:
         try:
             if startHour > 23 or endHour > 23:
                 raise Exception("Invalid Hour")
@@ -187,12 +201,12 @@ class ARemoteObject(RemoteInterface):
                 intStartMin = 30
             if intEndMin > 0 and intEndMin < 31:
                 intEndMin = 30
-            elif ((intEndMin > 30 and intEndMin < 60) or intEndMin == 0):
+            elif (intEndMin > 30 and intEndMin < 60) or intEndMin == 0:
                 intEndMin = 0
 
             startSlot = Msc.time2slot(intStartHour, intStartMin)
             endSlot = Msc.time2slot(intEndHour, intEndMin)
-            
+
             daySlot = Msc.day2Num(day)
             nameSlot = Msc.name2Num(name)
 
@@ -202,21 +216,32 @@ class ARemoteObject(RemoteInterface):
             print("Error at input", e)
 
     @remotemethod
-    def reschedule(self, confirmID: i64, offsetHour: i64, offsetMin:i64) -> i64:
+    async def reschedule(self, confirmID: i64, offsetHour: i64, offsetMin: i64) -> i64:
         try:
-            
+
             return 1
         except ValueError as e:
             print("Error at input", e)
 
     @remotemethod
-    def monitoring(self, name: String, day: String, startHour: i64, startMin: i64, endHour: i64, endMin: i64) -> i64:
-        
+    async def monitoring(
+        self,
+        name: String,
+        day: String,
+        startHour: i64,
+        startMin: i64,
+        endHour: i64,
+        endMin: i64,
+    ) -> i64:
+
         return 1
 
 
-
 async def server():
+    logging.basicConfig()
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+
     # Create the remote object
     ro = ARemoteObject()
     # Generate the skeleton on the remote class
@@ -225,20 +250,22 @@ async def server():
     sm_skel = skel(ro)
 
     schedule = Table()
-    
+
     # Factory function that returns a skeleton to use for every new connection.
     # todo: could accept address of remote client
     # We return the same skeleton object everytime, so that every client operates
     # on the same object, but having a factory allows for new objects for every
     # client, etc.
-    def skel_fac():
+    def skel_fac(addr: AddressType) -> Skeleton:
+        logger.info(f"new connection from {addr}")
         return sm_skel
 
-    
-
+    # Function that accepts a skeleton and an address on disconnection.
+    def disconnect_callback(addr: AddressType, skel: Skeleton):
+        logger.info(f"client {addr} disconnected")
 
     # Create the server and wait for it to be up.
-    s = await create_server(("127.0.0.1", 5000), skel_fac)
+    s = await create_server(("127.0.0.1", 5000), skel_fac, disconnect_callback)
     # Sleep for one hour and serve the remote object.
     await asyncio.sleep(3600)
 
@@ -248,7 +275,7 @@ async def client():
     Proxy = generate_proxy(ARemoteObject)
     # Pass the proxy to the connection function.
     # When this coroutine completes, the client is connected.
-    proxy = await create_and_connect_client(("127.0.0.1", 5000), Proxy)
+    client, proxy = await create_and_connect_client(("127.0.0.1", 5000), Proxy)
 
     # Set invocation semantics if required, defaults to at least once.
     # The interface for setting these would probably change because they
@@ -271,20 +298,22 @@ async def client():
             inputs = [int(await ainput(f"Enter number {i}: ")) for i in range(2)]
             operands = tuple(map(i64, inputs))
             res = await proxy.add(*operands)
-            if 'error' in res:
-                await aprint("Addition failed:", res['error'].value)
+            if "error" in res:
+                await aprint("Addition failed:", res["error"].value)
                 return
 
-            await aprint(' + '.join(map(str, inputs)), '=', res['i64'].value)
+            await aprint(" + ".join(map(str, inputs)), "=", res["i64"].value)
 
         except (ValueError, OverflowError):
             await aprint("Inputs are not numeric / out of range")
 
     async def do_availability():
-        #facility include Meeting Rooms, Lecture Theatres, Tutorial Rooms
-        await aprint("Select the facility: \n1. Meeting Rooms \n2. Lecture Theatres\n3. Tutorial Rooms\n")
+        # facility include Meeting Rooms, Lecture Theatres, Tutorial Rooms
+        await aprint(
+            "Select the facility: \n1. Meeting Rooms \n2. Lecture Theatres\n3. Tutorial Rooms\n"
+        )
         facility = int(await ainput("Enter Selection: "))
-        facility = facility-int(1)
+        facility = facility - int(1)
         if facility == 0:
             facilityName = "Meeting Room"
         elif facility == 1:
@@ -293,31 +322,42 @@ async def client():
             facilityName = "Tutorial Rooms"
         await aprint(facility)
         await aprint("How many days?")
-        
-        #if 1 day... if many days  
+
+        # if 1 day... if many days
         day = "Monday"
 
         check = await proxy.avail(String(facilityName), String(day))
-        print("list of free slots: ",check)
+        print("list of free slots: ", check)
 
-        
-        #calendar = TinyDB('calendar.json')
-        #calendar.insert({'name': 'Meeting Room', 'day': 'Monday', '0000-0030': 0, '0030-0100': 0, '0100-0130': 0, '0130-0200': 0})
-        #await aprint(calendar.all)
-        #setCalendar = Query()
-        #calender.search(setCalendar.name == 'Meeting Room')
-        #setCalendar = Query()
-        #calendar.update({'0030-0100': 1}, setCalendar.name =='Meeting Room')
-        
-        
-        
+        # calendar = TinyDB('calendar.json')
+        # calendar.insert({'name': 'Meeting Room', 'day': 'Monday', '0000-0030': 0, '0030-0100': 0, '0100-0130': 0, '0130-0200': 0})
+        # await aprint(calendar.all)
+        # setCalendar = Query()
+        # calender.search(setCalendar.name == 'Meeting Room')
+        # setCalendar = Query()
+        # calendar.update({'0030-0100': 1}, setCalendar.name =='Meeting Room')
 
-    handlers = [do_reverse, do_time, do_add, do_availability]
+    async def do_long_rpc():
+        await proxy.long_computation(u8())
+
+    async def do_exit():
+        client.close()
+        exit(1)
+
+    labels = (
+        "Reverse a string",
+        "Get current time",
+        "Add two numbers",
+        "Perform long RPC (10s)",
+        "Check Availability",
+        "Exit",
+    )
+    handlers = (do_reverse, do_time, do_add, do_long_rpc, do_availability, do_exit)
 
     # Call functions on the remote.
     # Use aprint and await for printing data.
     while True:
-        await aprint("Select an option:\n0: Reverse a string\n1: Get current time\n2: Add two numbers\n 3: Check Availability")
+        await aprint("\n".join(f"{i}: {s}" for i, s in enumerate(labels)))
         try:
             selection = int(await ainput(">>> "))
             await handlers[selection]()

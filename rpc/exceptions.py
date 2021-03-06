@@ -13,6 +13,14 @@ class RPCError(Exception):
     pass
 
 
+class ConnectionClosedError(RPCError):
+    """
+    RPC connection is closed.
+    """
+
+    pass
+
+
 class BadRequestError(RPCError):
     """
     Client's request packet was malformed.

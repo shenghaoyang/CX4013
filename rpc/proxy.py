@@ -57,29 +57,6 @@ class Proxy(ABC):
         self._timeout = timeout
         self._retries = retries
 
-    async def _call(self, ordinal: int, arguments: bytes) -> bytes:
-        """
-        Implement the RPC call with timeouts and retries.
-
-        :param ordinal: ordinal of remote method to call.
-        :param arguments: serialized arguments.
-        :return: serialized data.
-        :raises asyncio.TimeoutError: on timeout.
-        """
-        timeout = (
-            self._timeout if not self._retries else (self._timeout / self._retries)
-        )
-        tries = self._retries + 1
-        for i in range(tries):
-            try:
-                return await asyncio.wait_for(
-                    self._client.call(ordinal, arguments), timeout
-                )
-            except asyncio.TimeoutError:
-                continue
-        else:
-            raise asyncio.TimeoutError
-
 
 def proxy(remote_method: RemoteMethod, ordinal: int) -> Callable:
     """
@@ -113,7 +90,9 @@ def proxy(remote_method: RemoteMethod, ordinal: int) -> Callable:
             except Exception as e:
                 raise ArgumentSerializationError(f"argument {i}: {arg}") from e
 
-        ret = await self._call(ordinal, arguments)
+        ret = await self._client.call(
+            ordinal, arguments, self._semantics, self._timeout, self._retries
+        )
 
         try:
             return returntype.deserialize(ret)

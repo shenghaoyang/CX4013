@@ -10,10 +10,11 @@ from typing import Callable, Any
 from typing_extensions import Protocol
 from serialization.common import Serializable
 from abc import ABC
+from collections import Awaitable
 
 
 class RemoteMethod(Protocol):
-    def __call__(self, obj: Any, *args: Serializable) -> Serializable:
+    def __call__(self, obj: Any, *args: Serializable) -> Awaitable[Serializable]:
         pass
 
 
