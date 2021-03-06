@@ -579,7 +579,6 @@ class RPCClient(DatagramProtocol):
         self._peer = peer_adr
         self._closed = False
         self._router = ReplyRouter()
-        self._incoming_queue = asyncio.Queue()
         self._connected_event = asyncio.Event()
         self._transport: Optional[transports.DatagramTransport] = None
 
@@ -682,6 +681,8 @@ class RPCClient(DatagramProtocol):
         ordinal: int,
         args: bytes,
         semantics: InvocationSemantics = InvocationSemantics.AT_LEAST_ONCE,
+        timeout: Optional[float] = None,
+        retries: Optional[int] = 0,
     ) -> bytes:
         # todo we want to propagate any "resend" info
         """
@@ -692,12 +693,20 @@ class RPCClient(DatagramProtocol):
         :param ordinal: ordinal of the remote method.
         :param args: serialized arguments for the remote method.
         :param semantics: method invocation semantics.
+        :param timeout: RPC invocation timeout. ``None`` for no timeout.
+        :param retries: number of retries to make within timeout. Cannot be > ``0``
+            if timeout is ``None``.
         :return: serialized return value for the remote method.
         :raises exceptions.RPCConnectionClosedError: if the connection has been closed.
         """
+        # timeout & retries will be checked by set_semantics().
         if not self:
             await self.wait_connected()
 
+        timeout = timeout if not timeout else (timeout / retries)
+        tries = retries + 1
+
+        # Generate initial header.
         tid = self._txid.next().copy()
         hdr = PacketHeader(
             u32(self._cid),
@@ -705,12 +714,20 @@ class RPCClient(DatagramProtocol):
             semantics=semantics,
             method_ordinal=u32(ordinal),
         )
-        self._transport.sendto(hdr.serialize() + args, self._peer)
 
-        while True:
+        for i in range(tries):
+            if i:
+                hdr.flags |= PacketFlags.REPLAYED
+
+            self._transport.sendto(hdr.serialize() + args, self._peer)
             # shouldn't race because it's single threaded, and we don't hit an await
             # till the future gets submitted.
-            rhdr, payload = await self._router.listen(tid.value)
+            try:
+                rhdr, payload = await asyncio.wait_for(
+                    self._router.listen(tid.value), timeout
+                )
+            except asyncio.TimeoutError:
+                continue
 
             if not len(payload):
                 raise exceptions.InvalidReplyError("zero-length payload")
@@ -723,7 +740,7 @@ class RPCClient(DatagramProtocol):
                 # send acknowledgement to optimize result storage
                 # doesn't matter if it gets lost because the server will age it
                 # out anyway.
-                hdr.flags |= PacketFlags.ACK_REPLY
+                hdr.flags = PacketFlags.ACK_REPLY
                 self._transport.sendto(hdr.serialize(), self._peer)
 
             excc = estatus_to_exception(status)
@@ -731,6 +748,8 @@ class RPCClient(DatagramProtocol):
                 raise excc()
 
             return payload[1:]
+        else:
+            raise asyncio.TimeoutError
 
     def close(self):
         """
