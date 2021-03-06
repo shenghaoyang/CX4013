@@ -12,9 +12,10 @@ from enum import Flag, Enum, auto
 from serialization.numeric import u32
 
 # Packet structure
-# Byte 0:3 Client identifier, u32
-# Byte 4:7 Transaction number, u32
-# Byte 8: Flags
+# Byte 0:3 Magic number 0x04000103
+# Byte 4:7 Client identifier, u32
+# Byte 8:11 Transaction number, u32
+# Byte 12: Flags
 #    Bit 0: 1 -> Reply 0 -> Request
 #    Bit 1: Replayed reply flag (set when server is resending cached reply)
 #    Bit 2: Reply ACK flag (used to drop cached reply)
@@ -26,12 +27,15 @@ from serialization.numeric import u32
 #        1: At most once
 #        2: Reserved
 #        3: Reliable transport semantics
-# Byte 9-12: Method ordinal, u32
+# Byte 13-16: Method ordinal, u32
 # If request:
-#   Byte 13:End: Serialized arguments
+#   Byte 17:End: Serialized arguments
 # If response:
-#   Byte 13: Execution status
-#   Byte 14:End: Serialized response
+#   Byte 17: Execution status
+#   Byte 18:End: Serialized response
+
+
+HEADER_MAGIC: Final = b"\x04\x00\x01\x03"
 
 
 class TransactionID(u32):
@@ -141,7 +145,7 @@ class InvocationSemantics(Enum):
 
 class PacketHeader:
     # Length of the packet header
-    LENGTH: Final = 2 * u32().size + 1 + u32().size
+    LENGTH: Final = 3 * u32().size + 1 + u32().size
 
     def __init__(
         self,
@@ -174,10 +178,15 @@ class PacketHeader:
         :param data: data representing the packet header.
         """
         if len(data) < cls.LENGTH:
-            raise ValueError(f"data too short")
+            raise ValueError("data too short")
 
-        cid = u32.deserialize(data)
-        off = cid.size
+        if data[: len(HEADER_MAGIC)] != HEADER_MAGIC:
+            raise ValueError("packet magic number mismatch")
+
+        off = len(HEADER_MAGIC)
+
+        cid = u32.deserialize(data[off:])
+        off += cid.size
 
         tid = u32.deserialize(data[off:])
         off += tid.size
@@ -243,6 +252,7 @@ class PacketHeader:
         Convert this header to a sequence of bytes.
         """
         out = bytearray()
+        out.extend(HEADER_MAGIC)
         out.extend(self.client_id.serialize())
         out.extend(self.trans_num.serialize())
         out.append(self.flags.value | (self.semantics.value << 6))
