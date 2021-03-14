@@ -37,7 +37,7 @@ class ResultCache(MutableMapping[int, bytes]):
     Class representing the RPC result cache.
     """
 
-    def __init__(self, lifetime: float = 3600.0):
+    def __init__(self, lifetime: float = 60.0):
         """
         Create a new RPC result cache.
 
@@ -284,7 +284,8 @@ class ConnectedClient:
         caddr: AddressType,
         transport: transports.DatagramTransport,
         skel: Skeleton,
-        timeout_callback: Callable[[AddressType], None] = None,
+        timeout_callback: Callable[[AddressType], None],
+        inactivity_timeout: int = 300,
     ):
         """
         Create a new connected client.
@@ -295,11 +296,14 @@ class ConnectedClient:
         :param timeout_callback: callback invoked when this client times out.
             The `ConnectedClient` would be in a disconnected state when this callback
             is invoked. Use ``None`` to specify that no callback should be invoked.
+        :param inactivity_timeout: time (in seconds) without receiving packets from the client
+            before a client is disconnected.
         """
         self._loop = asyncio.get_running_loop()
         self._caddr = caddr
         self._transport = transport
         self._timeout_callback = timeout_callback
+        self._inactivity_timeout = inactivity_timeout
         self._oserver = RPCObjectServer(skel, 300)
 
         # Needs to manage.
@@ -307,7 +311,14 @@ class ConnectedClient:
         self._tmgr = TaskManager(self._task_done)
         self._disconnected = False
         # Client sequence number.
-        # Inactivity timeout.
+        # Last activity time: time of last packet activity (send / receive).
+        self._last_activity_time = time.monotonic()
+        self._inactivity_check_task = asyncio.create_task(
+            self._inactivity_check(self._inactivity_timeout)
+        )
+        self._inactivity_check_task.add_done_callback(
+            self._process_inactivity_check_result
+        )
 
     def __bool__(self) -> bool:
         """
@@ -316,6 +327,49 @@ class ConnectedClient:
         :return: `False` for disconnected, `True` for connected.
         """
         return not self._disconnected
+
+    def _process_inactivity_check_result(self, tsk: asyncio.Task):
+        """
+        Process the result of the inactivity check.
+
+        :param tsk: inactivity check task.
+        """
+        # Do nothing if already disconnected.
+        if not self:
+            return
+
+        # Disconnect if the inactivity check raised an exception, or if there
+        # was indeed inactivity.
+        if (tsk.exception() is not None) or tsk.result():
+            self._timeout_callback(self._caddr)
+            self.disconnect()
+            return
+
+        # Restart the task.
+        sleep_time = self._inactivity_timeout - (
+            time.monotonic() - self._last_activity_time
+        )
+        # todo refactor task creation
+        self._inactivity_check_task = asyncio.create_task(
+            self._inactivity_check(sleep_time)
+        )
+        self._inactivity_check_task.add_done_callback(
+            self._process_inactivity_check_result
+        )
+
+    async def _inactivity_check(self, after: float) -> bool:
+        """
+        Disconnect the client by checking if the last activity time (after sleeping
+        for a certain time) matches the before-sleep last activity time.
+
+        Used to implement inactivity monitoring.
+
+        :param after: time to sleep (in seconds).
+        :return: ``True`` if the time matches, ``False`` otherwise.
+        """
+        saved = self._last_activity_time
+        await asyncio.sleep(after)
+        return self._last_activity_time == saved
 
     def _send_packet(self, packet: bytes):
         """
@@ -351,6 +405,7 @@ class ConnectedClient:
         :param payload: packet payload.
         """
         # todo handle pings
+        self._last_activity_time = time.monotonic()
         txid = hdr.trans_num.value
 
         # Ignore requests with txids corresponding to executing tasks.
@@ -368,6 +423,7 @@ class ConnectedClient:
             return
 
         self._tmgr.cancel_tasks()
+        self._inactivity_check_task.cancel()
         self._disconnected = True
         # todo: implement oserver stop
         # self._oserver.stop()
@@ -551,6 +607,7 @@ class RPCServer(DatagramProtocol):
                 skel=skel,
                 transport=self._transport,
                 timeout_callback=self.disconnect_client,
+                inactivity_timeout=30,
             )
 
             # Register and send new CID
