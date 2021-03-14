@@ -66,6 +66,7 @@ class ARemoteObject(RemoteInterface):
 
     @remotemethod
     async def long_computation(self, key: u8) -> u8:
+        await aprint("starting long computation")
         await asyncio.sleep(10)
         return key
 
@@ -91,8 +92,8 @@ async def server():
         logger.info(f"new connection from {addr}")
         return sm_skel
 
-    # Function that accepts a skeleton and an address on disconnection.
-    def disconnect_callback(addr: AddressType, skel: Skeleton):
+    # Function that accepts an address on disconnection.
+    def disconnect_callback(addr: AddressType):
         logger.info(f"client {addr} disconnected")
 
     # Create the server and wait for it to be up.
@@ -112,6 +113,7 @@ async def client():
     # The interface for setting these would probably change because they
     # may collide with the names of remote methods.
     proxy.set_semantics(InvocationSemantics.AT_LEAST_ONCE)
+    proxy.set_timings(20, 10)
 
     await aprint("client: connected")
 

@@ -138,7 +138,7 @@ async def server():
         return sm_skel
 
     # Function that accepts a skeleton and an address on disconnection.
-    def disconnect_callback(addr: AddressType, skel: Skeleton):
+    def disconnect_callback(addr: AddressType):
         logger.info(f"client {addr} disconnected")
         ro.remove_cb_target(addr)
 
@@ -146,6 +146,7 @@ async def server():
     s = await create_server(("127.0.0.1", 5000), skel_fac, disconnect_callback)
     # Sleep for one hour and serve the remote object.
     await asyncio.sleep(3600)
+    s.stop()
 
 
 async def client():

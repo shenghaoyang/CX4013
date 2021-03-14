@@ -10,8 +10,9 @@ import asyncio
 import random
 from asyncio import DatagramProtocol, transports
 from typing import Optional, TypeVar, Hashable, Callable, Iterator, Union
-from collections.abc import MutableMapping, Coroutine
+from collections.abc import MutableMapping, Coroutine, Mapping
 from serialization.numeric import u32
+from functools import partial
 from rpc import exceptions
 from rpc.skeleton import Skeleton
 from rpc.packet import (
@@ -271,77 +272,181 @@ class RPCObjectServer:
         return RPCObjectServer.reply_packet(hdr, PacketFlags.REPLY, status)
 
 
-class TaskManager:
+class ConnectedClient:
     """
-    Task manager that watches over work done by multiple clients.
+    Class that represents a connected client.
+
+    Used at the server-side to manage clients.
     """
 
-    def __init__(self):
-        # todo could add task count limit as well as task time limit.
-        self._tasks: dict[AddressType, set[asyncio.Task]] = {}
-
-    def _remove_task(self, addr: AddressType, task: asyncio.Task = None):
+    def __init__(
+        self,
+        caddr: AddressType,
+        transport: transports.DatagramTransport,
+        skel: Skeleton,
+        timeout_callback: Callable[[AddressType], None] = None,
+    ):
         """
-        Remove a task from the manager.
+        Create a new connected client.
 
-        The task will be cancelled to avoid resource leaks.
-
-        This method silently ignores clients without tasks, or tasks that
-        are not managed by this manager. All tasks passed to this method
-        will be cancelled regardless.
-
-        :param addr: address of client.
-        :param task: task to remove. Use ``None`` to remove all tasks.
+        :param caddr: client address.
+        :param transport: transport used for communication with the client.
+        :param skel: bound skeleton used when handling client requests.
+        :param timeout_callback: callback invoked when this client times out.
+            The `ConnectedClient` would be in a disconnected state when this callback
+            is invoked. Use ``None`` to specify that no callback should be invoked.
         """
-        if addr not in self._tasks:
+        self._loop = asyncio.get_running_loop()
+        self._caddr = caddr
+        self._transport = transport
+        self._timeout_callback = timeout_callback
+        self._oserver = RPCObjectServer(skel, 300)
+
+        # Needs to manage.
+        # Maps transaction numbers to tasks spawned for handling them.
+        self._tmgr = TaskManager(self._task_done)
+        self._disconnected = False
+        # Client sequence number.
+        # Inactivity timeout.
+
+    def __bool__(self) -> bool:
+        """
+        Obtain the connection state.
+
+        :return: `False` for disconnected, `True` for connected.
+        """
+        return not self._disconnected
+
+    def _send_packet(self, packet: bytes):
+        """
+        Send a packet to the client.
+
+        :param packet: packet to send.
+        """
+        self._transport.sendto(packet, self._caddr)
+
+    def _task_done(self, txid: int, tsk: asyncio.Task):
+        """
+        Handle a task that was done.
+
+        :param txid: transaction ID of completed task.
+        :param tsk: completed task.
+        """
+        # Discard all tasks completed after disconnection.
+        if not self:
             return
 
-        tset = self._tasks[addr]
-        if task is None:
-            for t in tset:
-                t.cancel()
-            self._tasks[addr] = set()
+        # RPC object server should not raise exceptions.
+        assert tsk.exception() is None
+
+        packet = tsk.result()
+        if packet is not None:
+            self._send_packet(packet)
+
+    def process(self, hdr: PacketHeader, payload: bytes):
+        """
+        Process a packet received from the client.
+
+        :param hdr: packet header.
+        :param payload: packet payload.
+        """
+        # todo handle pings
+        txid = hdr.trans_num.value
+
+        # Ignore requests with txids corresponding to executing tasks.
+        if txid in self._tmgr:
             return
 
-        task.cancel()
-        if task in tset:
-            tset.remove(task)
+        # Otherwise, create task to run oserver.
+        self._tmgr.create_task(txid, self._oserver.process(hdr, payload))
 
-        if not len(tset):
-            del self._tasks[addr]
+    def disconnect(self):
+        """
+        Disconnect this client.
+        """
+        if not self:
+            return
 
-    def create_task(self, addr: AddressType, coro: Coroutine) -> asyncio.Task:
+        self._tmgr.cancel_tasks()
+        self._disconnected = True
+        # todo: implement oserver stop
+        # self._oserver.stop()
+
+
+class TaskManager(Mapping[int, asyncio.Task]):
+    """
+    Task manager managing tasks spawned for a connected client.
+    """
+
+    def __init__(self, done_callback: Callable[[int, asyncio.Task], None]):
+        """
+        Create a new task manager.
+
+        :param done_callback: callback to invoke when a task is done.
+            Will be called using ``loop.call_soon()``.
+            Note that this will be invoked even if the task raised an exception.
+            See the asyncio documentation for the definition of "done" with respect
+            to a task.
+        """
+        # Dictionary mapping transaction IDs to tasks spawned for those IDs.
+        self._tasks: dict[int, asyncio.Task] = {}
+        self._done_callback = done_callback
+
+    def __getitem__(self, txid: int) -> asyncio.Task:
+        """
+        Retrieve the task associated with a transaction ID.
+
+        :param txid: transaction ID to lookup.
+        """
+        return self._tasks[txid]
+
+    def __iter__(self) -> Iterator[int]:
+        """
+        Return an iterator yielding transaction IDs with active tasks.
+        """
+        return iter(self._tasks)
+
+    def __len__(self) -> int:
+        """
+        Obtain the number of active tasks.
+        """
+        return len(self._tasks)
+
+    def _task_done(self, txid: int, tsk: asyncio.Task):
+        del self._tasks[txid]
+        self._done_callback(txid, tsk)
+
+    def create_task(self, txid: int, coro: Coroutine) -> asyncio.Task:
         """
         Create a task to do work requested by a client.
 
-        :param addr: client address.
+        :param txid: transaction id.
         :param coro: coroutine to execute.
         :return: created task.
         """
         tsk = asyncio.create_task(coro)
-        tsk.add_done_callback(lambda t: self._remove_task(addr, t))
-        self._tasks.setdefault(addr, set()).add(tsk)
+        tsk.set_name(f"{self.__class__.__name__}: task for txid {txid}")
+        tsk.add_done_callback(partial(self._task_done, txid))
+        self._tasks[txid] = tsk
 
         return tsk
 
-    def cancel_tasks(self, addr: AddressType = None):
+    def cancel_tasks(self):
         """
-        Cancel all tasks for a given client.
+        Cancel all tasks.
 
-        It's safe to cancel tasks for a client that has none.
-
-        :param addr: client address. Use ``None`` to cancel for all clients.
+        Cancelled tasks will be removed.
         """
-        addrs = iter(self._tasks) if addr is None else (addr,)
-        for a in addrs:
-            self._remove_task(a)
+        # tasks will be removed by the done callback.
+        for t in self._tasks.values():
+            t.cancel()
 
 
 class RPCServer(DatagramProtocol):
     def __init__(
         self,
         skel_fac: Callable[[AddressType], Skeleton],
-        disconnect_callback: Callable[[AddressType, Skeleton], None],
+        disconnect_callback: Callable[[AddressType], None],
     ):
         """
         Create a new RPC server.
@@ -349,17 +454,25 @@ class RPCServer(DatagramProtocol):
         :param skel_fac: skeleton factory generating skeletons that this server
             sends received RPC requests to.
         :param disconnect_callback: callback that will be invoked on client disconnections.
+            May be called immediately on disconnections. No guarantees as to whether
+            ``loop.call_soon()`` will be used.
         """
         # todo figure out how to age out clients
         self._skel_fac = skel_fac
         self._disconnect_callback = disconnect_callback
         # maps addresses to cid, server instance.
-        self._clients: dict[AddressType, tuple[int, RPCObjectServer]] = {}
-        self._tasks = TaskManager()
+        self._clients: dict[AddressType, tuple[int, ConnectedClient]] = {}
         self._transport: Optional[transports.DatagramTransport] = None
+        self._stopped = False
 
-    def connection_made(self, transport: transports.DatagramTransport) -> None:
+    def connection_made(self, transport: transports.DatagramTransport):
         self._transport = transport
+
+    def __bool__(self):
+        """
+        Check whether the server is running.
+        """
+        return not self._stopped
 
     def _send_rst(self, to: AddressType):
         """
@@ -370,58 +483,31 @@ class RPCServer(DatagramProtocol):
         hdr = PacketHeader(flags=PacketFlags.RST | PacketFlags.REPLY)
         self._transport.sendto(hdr.serialize(), to)
 
-    def _disconnect_client(self, client: AddressType = None, send_rst: bool = True):
+    def _disconnect_clients(self):
+        """
+        Disconnect all clients.
+
+        RST packets will be sent to all clients unconditionally.
+        """
+        # This construction is needed to avoid mutating the dictionary
+        # while iterating through it.
+        while len(self._clients):
+            caddr = next(iter(self._clients))
+            self.disconnect_client(caddr)
+
+    def disconnect_client(self, client: AddressType, send_rst: bool = True):
         """
         Disconnect a client.
 
-        :param client: address of client to disconnect. Use ``None`` to disconnect all clients.
-        :param send_rst: whether to send reset to client.
+        :param client: address of client to disconnect.
+        :param send_rst: whether to send a RST packet to the client.
         """
+        self._clients[client][1].disconnect()
+        if send_rst:
+            self._send_rst(client)
 
-        def do_disconnect(addr: AddressType, oserver: RPCObjectServer):
-            if send_rst:
-                self._send_rst(addr)
-
-            self._disconnect_callback(addr, oserver.skeleton)
-            self._tasks.cancel_tasks(addr)
-
-        if client is None:
-            for addr, (_, oserver) in self._clients.items():
-                do_disconnect(addr, oserver)
-
-            self._clients = {}
-            return
-
-        _, oserver = self._clients[client]
-        do_disconnect(client, oserver)
         del self._clients[client]
-
-    async def _process_task(
-        self,
-        oserver: RPCObjectServer,
-        hdr: PacketHeader,
-        payload: bytes,
-        addr: AddressType,
-    ):
-        """
-        Task that does RPC work for the incoming datagram.
-
-        See ``datagram_received()`` for more information on the parameters.
-        """
-        ret = await oserver.process(hdr, payload)
-        if ret is None:
-            return
-
-        self._transport.sendto(ret, addr)
-        return
-
-    def disconnect_client(self, client: AddressType = None):
-        """
-        Disconnect a client.
-
-        :param client: address of client to disconnect. Use ``None`` to disconnect all clients.
-        """
-        self._disconnect_client(client)
+        self._disconnect_callback(client)
 
     def datagram_received(self, data: bytes, addr: AddressType):
         """
@@ -441,29 +527,33 @@ class RPCServer(DatagramProtocol):
         if hdr.is_reply:
             return
 
-        cid = hdr.client_id.value
-
-        # Handle RST
+        # Check for an RST.
         if hdr.flags & PacketFlags.RST:
+            # Disconnect active client.
             if addr in self._clients:
-                self._disconnect_client(addr, False)
+                self.disconnect_client(addr, False)
             return
 
-        if not cid:
-            # New connection or RST.
-            # At this point we have validated that the client has an open connection with
-            # this server.
-            if addr in self._clients:
-                # Stale connection exists for the same network address.
-                # Drop.
-                self.disconnect_client(addr)
+        # Non RST, continuation of previous session or new connection.
+        cid = hdr.client_id.value
 
-            oserver = RPCObjectServer(self._skel_fac(addr))
+        # New connection.
+        if not cid:
+            if addr in self._clients:
+                # Delete stale connection for the same network address.
+                self.disconnect_client(addr, False)
+
+            skel = self._skel_fac(addr)
             # Generate random CID to avoid collisions with previously connected clients.
             cid = random.randint(u32.min() + 1, u32.max())
-            self._clients[addr] = cid, oserver
+            self._clients[addr] = cid, ConnectedClient(
+                caddr=addr,
+                skel=skel,
+                transport=self._transport,
+                timeout_callback=self.disconnect_client,
+            )
 
-            # register and send new CID
+            # Register and send new CID
             rep = PacketHeader(
                 client_id=u32(cid), flags=(PacketFlags.REPLY | PacketFlags.CHANGE_CID)
             )
@@ -478,7 +568,7 @@ class RPCServer(DatagramProtocol):
             self._send_rst(addr)
             return
 
-        scid, oserver = self._clients[addr]
+        scid, cclient = self._clients[addr]
         if scid != cid:
             # Unknown client, also one that thinks it's using an open connection
             # but server also doesn't have a record of that connection. Reset.
@@ -486,10 +576,20 @@ class RPCServer(DatagramProtocol):
             self.disconnect_client(addr)
             return
 
-        # At this point we have validated that the client has an open connection with
-        # this server.
-        # Perform RPC work on behalf of client.
-        self._tasks.create_task(addr, self._process_task(oserver, hdr, payload, addr))
+        cclient.process(hdr, payload)
+
+    def stop(self):
+        """
+        Stop the RPC server.
+
+        No-op if already stopped.
+        """
+        if not self:
+            return
+
+        self._disconnect_clients()
+        self._transport.close()
+        self._stopped = True
 
 
 class ReplyRouter:
@@ -684,7 +784,6 @@ class RPCClient(DatagramProtocol):
         timeout: Optional[float] = None,
         retries: Optional[int] = 0,
     ) -> bytes:
-        # todo we want to propagate any "resend" info
         """
         Call a remote method.
 
