@@ -380,9 +380,13 @@ class ConnectedClient:
         :param hdr: packet header.
         :param payload: packet payload.
         """
-        # todo handle pings
         self._last_activity_time = time.monotonic()
         txid = hdr.trans_num.value
+
+        if hdr.flags & PacketFlags.PING:
+            hdr.flags |= PacketFlags.REPLY
+            self._send_packet(hdr.serialize())
+            return
 
         # Ignore requests with txids corresponding to executing tasks.
         if txid in self._tmgr:
@@ -583,7 +587,7 @@ class RPCServer(DatagramProtocol):
                 skel=skel,
                 transport=self._transport,
                 timeout_callback=self.disconnect_client,
-                inactivity_timeout=30,
+                inactivity_timeout=300,
             )
 
             # Register and send new CID
@@ -701,19 +705,36 @@ class ReplyRouter:
 
 
 class RPCClient(DatagramProtocol):
-    def __init__(self, peer_adr: AddressType):
+    def __init__(
+        self,
+        peer_adr: AddressType,
+        inactivity_timeout: int = 300,
+        keepalive_interval: int = None,
+    ):
         """
         Create a new RPC client.
 
         :param peer_adr: address to connect to.
+        :param inactivity_timeout: time (in seconds) without receiving any packets from the
+            server before disconnecting from it.
+        :param keepalive_interval: time (in seconds) between sending keepalive PING packets.
+            Use ``None`` to infer from ``inactivity_timeout``.
         """
         self._txid = TransactionID.random()
         self._cid: int = 0
         self._peer = peer_adr
+        self._inactivity_timeout = inactivity_timeout
+        if keepalive_interval is None:
+            self._ping_interval = inactivity_timeout / 4
+        else:
+            self._ping_interval = keepalive_interval
+
         self._closed = False
         self._router = ReplyRouter()
         self._connected_event = asyncio.Event()
         self._transport: Optional[transports.DatagramTransport] = None
+        self._last_activity_time = time.monotonic()
+        self._inactivity_check_task: Optional[asyncio.Task] = None
 
     def connection_made(self, transport: transports.DatagramTransport):
         self._transport = transport
@@ -725,6 +746,43 @@ class RPCClient(DatagramProtocol):
         Returns ``True`` if the client can be used for RPC calls.
         """
         return self._connected_event.is_set()
+
+    async def _ping_loop(self, interval: float):
+        """
+        Loop that will send PING packets to the server at a predefined interval.
+
+        :param interval: interval to send ping packets at (in seconds).
+        """
+        while True:
+            await asyncio.sleep(interval)
+            self._transport.sendto(
+                PacketHeader(
+                    client_id=u32(self._cid), flags=PacketFlags.PING
+                ).serialize(),
+                self._peer,
+            )
+
+    async def _inactivity_check_loop(self, after: float):
+        """
+        Loop that will disconnect the client by checking if the last
+        activity time (after sleeping for a certain time) matches the before-sleep last activity time.
+
+        Used to implement inactivity monitoring.
+
+        :param after: time to sleep (in seconds).
+        """
+        while True:
+            saved = self._last_activity_time
+            await asyncio.sleep(after)
+            inactive = self._last_activity_time == saved
+
+            if inactive:
+                # Do nothing if already disconnected.
+                if not self:
+                    return
+
+                self.close()
+                return
 
     async def _process_task(self, data: bytes):
         """
@@ -748,6 +806,11 @@ class RPCClient(DatagramProtocol):
 
             self._cid = hdr.client_id.value
             self._connected_event.set()
+            self._last_activity_time = time.monotonic()
+            self._ping_task = asyncio.create_task(self._ping_loop(self._ping_interval))
+            self._inactivity_check_task = asyncio.create_task(
+                self._inactivity_check_loop(self._inactivity_timeout)
+            )
             return
 
         if hdr.flags & PacketFlags.RST:
@@ -755,6 +818,11 @@ class RPCClient(DatagramProtocol):
             return
 
         if hdr.client_id.value != self._cid:
+            return
+
+        self._last_activity_time = time.monotonic()
+
+        if hdr.flags & PacketFlags.PING:
             return
 
         self._router.route(hdr, payload)
@@ -775,6 +843,10 @@ class RPCClient(DatagramProtocol):
                 PacketHeader(flags=PacketFlags.RST).serialize(), self._peer
             )
 
+        if (t := self._ping_task) is not None:
+            t.cancel()
+        if (t := self._inactivity_check_task) is not None:
+            t.cancel()
         self._router.raise_on_listeners(exceptions.ConnectionClosedError())
         self._connected_event.clear()
         self._closed = True
