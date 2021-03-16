@@ -5,7 +5,9 @@ class Misc:
             return {
                 "Meeting Room": 0,
                 "Lecture Room": 1,
-                "Tutorial Room": 2
+                "Tutorial Room": 2,
+                "Reading Room": 3,
+                "Study Room": 4
             }[name]
         except KeyError:
             raise ValueError[name]

@@ -36,7 +36,7 @@ async def avail(nameStr: String, day: String, thisTable:table.Table) -> Arrayu8:
     except ValueError as e:
         print("Error at input", e)
 
-async def booking(nameStr: String, day: String, startHour: u8, startMin: u8, endHour: u8, endMin: u8, thisTable: table.Table) -> Arrayu8:
+async def booking(nameStr: String, day: String, startHour: u8, startMin: u8, endHour: u8, endMin: u8, thisTable: table.Table) -> u8:
     try:
         startSlot = misc.Misc.time2slot(startHour,startMin)
         endSlot = misc.Misc.time2slot(endHour,endMin)
@@ -46,8 +46,9 @@ async def booking(nameStr: String, day: String, startHour: u8, startMin: u8, end
             thisTable.updateTable(dayNum,i,nameStr)
 
         searched = thisTable.searchTable(nameStr, dayNum)
-
-        return searched
+        nameNum = misc.Misc.name2Num(str(nameStr))
+        confirmID = int(str(nameNum)+str(dayNum)+str(startSlot)+str(endSlot))
+        return confirmID
     except ValueError as e:
         print("Error at input", e)
 
@@ -58,10 +59,10 @@ async def main():
     print("Free Table:", freeTable)
     book = await booking("Reading Room", "Monday", 1,30,19,00,thisTable)
     book = await booking("Study Room", "Monday", 1,30,10,00,thisTable)
-    book = await booking("Study Room", "Monday", 1,00,2,00,thisTable)
-    print("Booked:", book)
-    freeTable = await avail("Meeting Room", "Monday", thisTable)
-    print("Free Table:", freeTable)
+    #book = await booking("Study Room", "Monday", 0,00,0,30,thisTable)
+    print("Booking ID:", book)
+    #freeTable = await avail("Meeting Room", "Monday", thisTable)
+    #print("Free Table:", freeTable)
 
 
 asyncio.run(main())
