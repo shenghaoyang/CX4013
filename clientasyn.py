@@ -26,15 +26,26 @@ async def client():
 
     await aprint("client: connected")
     
+   
+
     async def inputdate():
          string = await ainput("Enter Date:")
          date = await proxy.date_format(String(string))
          await aprint("Date Input:", date.value)
+         await facility()
 
     async def facility():
            input = await int(ainput("Select facility : 1 - meeting rooms , 2 - lecture theatres 3- study room :"))
            facilityinput = await proxy.int(int(int))
-           await aprint("Choosen Facilty:", facilityinput.value)
+           await aprint("Choosen Facilty\n".join(f"{i}: {facilityinput.value}" for i, facilityinput.value in 3))
+          
+
+    async def facility1():
+           input = await int(ainput("Select facility : 1 - meeting rooms , 2 - lecture theatres 3- study room :"))
+           facilityinput = await proxy.int(int(int))
+           await aprint("Choosen Facilty\n".join(f"{i}: {facilityinput.value}" for i, facilityinput.value in 3))
+           await time
+           
     
     async def time():
            
@@ -46,6 +57,12 @@ async def client():
          input = await int(ainput("Enter Your Booking ID"))
          bookingidinput = await proxy.int(int(int))
          await aprint("BookingId Entered:", bookingidinput.value)
+         await time()
+
+    #async def Idempotent():
+    
+    #async def non-Idempotent():
+
 
         
     async def do_exit():
@@ -53,13 +70,15 @@ async def client():
         exit(1)
 
     labels = (
-        "Input Date",
-        "Input Facility",
-        "Input Time",
-        "BookingID Input"
+        "1: Query the availability of a facility (Select days and facility)",
+        "2: Booking a facility (for a period of time)",
+        "3: Manage Booking (change booking)",
+        "4: Check Availability (monitor using callback)"
+        "5: Idempotent example"
+        "6: non-Idempotent example"
         "Exit",
     )
-    handlers = (inputdate,facility,time,Bookingid,do_exit)
+    handlers = (inputdate,facility1,time,Bookingid,Idempotent,non-Idempotent,do_exit)
 
     
 
