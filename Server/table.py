@@ -17,7 +17,7 @@ class Table:
             for k in range(len(self.wholeTable[j][i])):
                 if (value in self.wholeTable[j][i]):
                     raise Exception("Conflict booking "+ value + " on " + misc.Misc.slot2time(i))
-            self.wholeTable[j][i] = (self.wholeTable[j][i] + (value,)) # TODO fix existing tuple from tuple tupling
+            self.wholeTable[j][i] = (self.wholeTable[j][i] + (value,)) 
 
     def searchTable(self, nameStr, j):
         #for j in range(7) >>j is day range

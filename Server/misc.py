@@ -3,11 +3,11 @@ class Misc:
     def name2Num(name): 
         try:
             return {
-                "Meeting Room": 0,
-                "Lecture Room": 1,
-                "Tutorial Room": 2,
-                "Reading Room": 3,
-                "Study Room": 4
+                "Meeting Room": 1,
+                "Lecture Room": 2,
+                "Tutorial Room": 3,
+                "Reading Room": 4,
+                "Study Room": 5
             }[name]
         except KeyError:
             raise ValueError[name]

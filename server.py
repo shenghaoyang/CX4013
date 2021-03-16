@@ -45,20 +45,30 @@ async def booking(nameStr: String, day: String, startHour: u8, startMin: u8, end
         for i in range(startSlot,endSlot):
             thisTable.updateTable(dayNum,i,nameStr)
 
-        searched = thisTable.searchTable(nameStr, dayNum)
+        #searched = thisTable.searchTable(nameStr, dayNum)
         nameNum = misc.Misc.name2Num(str(nameStr))
-        confirmID = int(str(nameNum)+str(dayNum)+str(startSlot)+str(endSlot))
+        if startSlot < 10:
+            startStr = "0"+ str(startSlot)
+        else:
+            startStr = str(startSlot)
+        if endSlot < 10:
+            endStr = "0" +str(endSlot)
+        else:
+            endStr = str(endSlot)
+        confirmID = int(str(nameNum)+str(dayNum)+startStr+endStr)
         return confirmID
     except ValueError as e:
         print("Error at input", e)
 
+#async def changeBooking(bookingID: u8)
+
 async def main():
     await server()
     thisTable = table.Table()
-    freeTable = await avail("Meeting Room", "Monday", thisTable)
-    print("Free Table:", freeTable)
+    #freeTable = await avail("Meeting Room", "Monday", thisTable)
+    #print("Free Table:", freeTable)
     book = await booking("Reading Room", "Monday", 1,30,19,00,thisTable)
-    book = await booking("Study Room", "Monday", 1,30,10,00,thisTable)
+    book = await booking("Meeting Room", "Tuesday", 9,30,10,30,thisTable)
     #book = await booking("Study Room", "Monday", 0,00,0,30,thisTable)
     print("Booking ID:", book)
     #freeTable = await avail("Meeting Room", "Monday", thisTable)
