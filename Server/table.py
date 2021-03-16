@@ -3,6 +3,7 @@ import Server.misc as misc
 class Table:
     def __init__(self):
         self.wholeTable = [[() for i in range(48)] for j in range(7)]
+        self.bookingList = []
 
     def getTable(self):
         print(self.wholeTable)
@@ -20,7 +21,7 @@ class Table:
             self.wholeTable[j][i] = (self.wholeTable[j][i] + (value,)) 
 
     def updateTableRemove(self, j, i, value):
-        x=0
+        
         for k in range(len(self.wholeTable[j][i])):
             if (value in self.wholeTable[j][i]):
                 print("k", k)
@@ -29,7 +30,7 @@ class Table:
                 #print(self.wholeTable[j][i])
                 self.wholeTable[j][i].pop(k)
                 self.wholeTable[j][i] = tuple(self.wholeTable[j][i])
-                x=1
+                
             
         #if x==0:
         #       raise Exception("Invalid")

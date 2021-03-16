@@ -19,7 +19,7 @@ async def avail(nameStr: String, day: String, thisTable:table.Table) -> Arrayu8:
     try:
         #nameNum = Misc.name2Num(nameStr)
         dayNum = misc.Misc.day2Num(day)
-        print(dayNum)
+        #print(dayNum)
         #thisTable.getTable()
         #thisTable.updateTable(dayNum, 4, nameStr)
         #strTime = misc.Misc.slot2time(31)
@@ -56,6 +56,7 @@ async def booking(nameStr: String, day: String, startHour: u8, startMin: u8, end
         else:
             endStr = str(endSlot)
         confirmID = int(str(nameNum)+str(dayNum)+startStr+endStr)
+        thisTable.bookingList.append(confirmID)
         return confirmID
     except ValueError as e:
         print("Error at input", e)
@@ -63,6 +64,14 @@ async def booking(nameStr: String, day: String, startHour: u8, startMin: u8, end
 #async def deleteBooking
 
 async def changeBooking(bookingID: u8, offset: i64, thisTable: table.Table) -> i64:
+    x=0
+    for i in range(len(thisTable.bookingList)):
+        if thisTable.bookingList[i] == bookingID:
+            x=1 
+    if x == 0:
+        raise Exception("Not valid booking ID")
+
+    oriBookingID = bookingID
     endSlot = bookingID % 100
     bookingID = (bookingID - endSlot)/100
     startSlot = int(bookingID % 100)
@@ -75,7 +84,8 @@ async def changeBooking(bookingID: u8, offset: i64, thisTable: table.Table) -> i
     #Assume offset is already negative or positive
     newStartSlot = startSlot + offset
     newEndSlot = endSlot + offset
-    
+    if (newStartSlot < 0) or (newEndSlot >48):
+        raise Exception("Invalid range of booking, must be between 0000H to 2350H")
     if offset < 0:
         for i in range(newStartSlot,startSlot):
             thisTable.updateTable(dayNum,i,nameStr)
@@ -90,22 +100,38 @@ async def changeBooking(bookingID: u8, offset: i64, thisTable: table.Table) -> i
             thisTable.updateTable(dayNum,i,nameStr)
     searched = thisTable.searchTable(nameStr, dayNum)
     print(searched)
-    return 1
+    if startSlot < 10:
+        startStr = "0"+ str(newStartSlot)
+    else:
+        startStr = str(newStartSlot)
+    if endSlot < 10:
+        endStr = "0" +str(newEndSlot)
+    else:
+        endStr = str(newEndSlot)
+
+    confirmID = int(str(nameNum)+str(dayNum)+startStr+endStr)
+    for i in range(len(thisTable.bookingList)):
+        if thisTable.bookingList[i] == oriBookingID:
+            thisTable.bookingList[i] = confirmID 
+    return confirmID
 
 async def main():
     await server()
     thisTable = table.Table()
+    #bookingList = []
     #freeTable = await avail("Meeting Room", "Monday", thisTable)
     #print("Free Table:", freeTable)
     book = await booking("Reading Room", "Monday", 1,30,19,00,thisTable)
     book = await booking("Meeting Room", "Tuesday", 9,30,10,30,thisTable)
     book = await booking("Tutorial Room", "Tuesday", 9,30,10,30,thisTable)
+    #book = await booking("Meeting Room", "Tuesday", 23,00,23,30,thisTable)
     #book = await booking("Study Room", "Monday", 0,00,0,30,thisTable)
     print("Booking ID:", book)
     #freeTable = await avail("Meeting Room", "Monday", thisTable)
     #print("Free Table:", freeTable)
-    changed = await changeBooking(111921, 8, thisTable) #assume advance is negative and postponse is positive
-    print("Booking Change: ", changed)
+    changed = await changeBooking(111921, 26, thisTable) #assume advance is negative and postponse is positive
+    print("New booking ID: ", changed)
+    print(thisTable.bookingList)
 
 
 asyncio.run(main())
