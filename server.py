@@ -75,10 +75,19 @@ async def changeBooking(bookingID: u8, offset: i64, thisTable: table.Table) -> i
     #Assume offset is already negative or positive
     newStartSlot = startSlot + offset
     newEndSlot = endSlot + offset
-    for i in range(newStartSlot,startSlot):
-        thisTable.updateTable(dayNum,i,nameStr)
-    for i in range(newEndSlot,endSlot):
-        thisTable.updateTableRemove(dayNum,i,nameStr)
+    
+    if offset < 0:
+        for i in range(newStartSlot,startSlot):
+            thisTable.updateTable(dayNum,i,nameStr)
+        for i in range(newEndSlot,endSlot):
+            thisTable.updateTableRemove(dayNum,i,nameStr)
+    else:
+        if endSlot < newStartSlot:
+            endSlot = newStartSlot
+        for i in range(startSlot, newStartSlot):
+            thisTable.updateTableRemove(dayNum,i,nameStr)
+        for i in range(endSlot,newEndSlot):
+            thisTable.updateTable(dayNum,i,nameStr)
     searched = thisTable.searchTable(nameStr, dayNum)
     print(searched)
     return 1
@@ -95,7 +104,7 @@ async def main():
     print("Booking ID:", book)
     #freeTable = await avail("Meeting Room", "Monday", thisTable)
     #print("Free Table:", freeTable)
-    changed = await changeBooking(111921, -1, thisTable) #assume advance is negative and postponse is positive
+    changed = await changeBooking(111921, 8, thisTable) #assume advance is negative and postponse is positive
     print("Booking Change: ", changed)
 
 

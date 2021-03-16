@@ -30,8 +30,9 @@ class Table:
                 self.wholeTable[j][i].pop(k)
                 self.wholeTable[j][i] = tuple(self.wholeTable[j][i])
                 x=1
-        if x==0:
-                raise Exception("Invalid")
+            
+        #if x==0:
+        #       raise Exception("Invalid")
         #self.wholeTable[j][i] = (self.wholeTable[j][i] + (value,))     
 
     def searchTable(self, nameStr, j):
