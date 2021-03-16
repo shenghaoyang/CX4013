@@ -44,14 +44,24 @@ from rpc.skeleton import generate_skeleton, Skeleton
 from rpc.proxy import generate_proxy
 from rpc.common import remotemethod, RemoteInterface
 from rpc.packet import InvocationSemantics
-from serialization.derived import String, create_union_type, Array
+from serialization.derived import String, create_union_type, create_array_type, create_struct_type
 from serialization.numeric import i64, u8
-from tinydb import TinyDB, Query
+#from tinydb import TinyDB, Query
 
+Arrayu8 = create_array_type('u8', u8)
+
+arr = Arrayu8()
+arr.append(u8(1))
+arr.append(u8(2))
+
+#at client
+len(arr)
+
+arr[0].value #to find the integer
 
 # Declare any types that you may want to use.
 ErrorOri64 = create_union_type(
-    "ErrorOri64", (("i64", i64), ("error", String), ("array", Array))
+    "ErrorOri64", (("i64", i64), ("error", String), ("array", Arrayu8))
 )
 
 
@@ -60,72 +70,73 @@ ErrorOri64 = create_union_type(
 # You might want to use an interface if you want to hide the implementation details.
 class Table:
     def __init__(self):
-        self.availTable = [[[0 for i in range(48)] for j in range(7)] for k in range(3)]
+        self.wholeTable = [[() for i in range (48)] for j in range(7)]
+        #self.availTable = [[[0 for i in range(48)] for j in range(7)] for k in range(3)]
 
     def updateTable(self, k, j, i, value):
-        self.availTable[i][j][k] = value
+        self.wholeTable[i][j].append(value)
 
-    def searchTable(self, k, j):
-        searched = list(self.availTable[k][j][:])
+    def searchTable(self, nameStr, j):
+        #for j in range(7)
+        searched = list(self.wholeTable[j][:])
         return searched
 
     def booking(self, nameSlot, daySlot, startSlot, endSlot):
         # check if available
         for i in range(startSlot, endSlot):
-            if self.availTable[nameSlot][daySlot][i] == 1:
+            if self.wholeTable[daySlot][i] == 1: #name not settled
                 raise Exception("Conflict booking")
 
         for i in range(startSlot, endSlot):
-            self.availTable[nameSlot][daySlot][i] = 1
+            self.wholeTable[daySlot][i] = 1 #name not settled
 
         bookingID = BookingList.setBookingList(nameSlot, daySlot, startSlot, endSlot)
 
         return bookingID
 
 
-class BookingList:
-    def __init__(self):
-        # list: (bookingID, name, startslot, endslot)
-        self.bookingID
-        self.bookingList = []
+# class BookingList:
+#     def __init__(self):
+#         # list: (bookingID, name, startslot, endslot)
+#         self.bookingID
+#         self.bookingList = []
 
-    def setBookingList(name, daySlot, startSlot, endSlot):
+#     def setBookingList(name, daySlot, startSlot, endSlot):
 
-        return bookingID
+#         return bookingID
 
-    def modifyBookingList(bookingID, name, daySlot, newStartSlot, newEndSlot):
-        return True
+#     def modifyBookingList(bookingID, name, daySlot, newStartSlot, newEndSlot):
+#         return True
 
 
 class Msc:
-    def name2Num(name):
-        if name == "Meeting Room":
-            return 0
-        elif name == "Lecture Room":
-            return 1
-        elif name == "Tutorial Room":
-            return 2
-        else:
-            raise Exception("Invalid Facility")
+    #static method wont be expecting the first arg to be a instance
+    @staticmethod
+    def name2Num(name): 
+        try:
+            return {
+                "Meeting Room": 0,
+                "Lecture Room": 1,
+                "Tutorial Room": 2
+            }[name]
+        except KeyError:
+            raise ValueError[name]
 
+    @staticmethod  
     def day2Num(day):
-        if day == "Monday":
-            return 0
-        elif day == "Tuesday":
-            return 1
-        elif day == "Wednesday":
-            return 2
-        elif day == "Thursday":
-            return 3
-        elif day == "Friday":
-            return 4
-        elif day == "Saturday":
-            return 5
-        elif day == "Sunday":
-            return 6
-        else:
-            raise Exception("Invalid day")
-
+        try:
+            return {
+                "Monday": 0,
+                "Tuesday": 1,
+                "Wednesday": 2,
+                "Thursday": 3,
+                "Friday": 4,
+                "Saturday": 5,
+                "Sunday": 6
+            }[day]
+        except KeyError:
+            raise ValueError[day]
+       
     def time2slot(hour, min):
         # 0 0000-0030
         # 1 0030-0100
@@ -141,6 +152,9 @@ class Msc:
 
 
 class ARemoteObject(RemoteInterface):
+    def __init__(self, table:Table):
+        self._table = table
+
     @remotemethod
     async def reverse(self, s: String) -> String:
         return String("".join(reversed(s.value)))
@@ -163,11 +177,13 @@ class ARemoteObject(RemoteInterface):
         return key
 
     @remotemethod
-    async def avail(self, name: String, day: String) -> Array:
+    async def avail(self, nameStr: String, day: String) -> Arrayu8:
         try:
-            nameNum = Msc.name2Num(name)
+            #nameNum = Msc.name2Num(name)
+            #print("nameNum: ", nameNum)
             dayNum = Msc.day2Num(day)
-            searched = Table.searchTable(nameNum, dayNum)
+            print("dayNum: ", dayNum)
+            searched = Table.searchTable(nameStr, dayNum)
             return searched
         except ValueError as e:
             print("Error at input", e)
@@ -243,13 +259,14 @@ async def server():
     logger.setLevel(logging.DEBUG)
 
     # Create the remote object
-    ro = ARemoteObject()
+    ro = ARemoteObject(Table())
     # Generate the skeleton on the remote class
     skel = generate_skeleton(ARemoteObject)
     # Bind the skeleton to the actual object
     sm_skel = skel(ro)
 
     schedule = Table()
+    #print(schedule)
 
     # Factory function that returns a skeleton to use for every new connection.
     # todo: could accept address of remote client
