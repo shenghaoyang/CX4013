@@ -60,7 +60,28 @@ async def booking(nameStr: String, day: String, startHour: u8, startMin: u8, end
     except ValueError as e:
         print("Error at input", e)
 
-#async def changeBooking(bookingID: u8)
+#async def deleteBooking
+
+async def changeBooking(bookingID: u8, offset: i64, thisTable: table.Table) -> i64:
+    endSlot = bookingID % 100
+    bookingID = (bookingID - endSlot)/100
+    startSlot = int(bookingID % 100)
+    bookingID = (bookingID - startSlot)/100
+    dayNum = int(bookingID % 10)
+    bookingID = (bookingID - dayNum)/10
+    nameNum = int(bookingID)
+    nameStr = misc.Misc.num2Name(nameNum)
+    #print(endSlot, startSlot, dayNum, nameNum)
+    #Assume offset is already negative or positive
+    newStartSlot = startSlot + offset
+    newEndSlot = endSlot + offset
+    for i in range(newStartSlot,startSlot):
+        thisTable.updateTable(dayNum,i,nameStr)
+    for i in range(newEndSlot,endSlot):
+        thisTable.updateTableRemove(dayNum,i,nameStr)
+    searched = thisTable.searchTable(nameStr, dayNum)
+    print(searched)
+    return 1
 
 async def main():
     await server()
@@ -69,10 +90,13 @@ async def main():
     #print("Free Table:", freeTable)
     book = await booking("Reading Room", "Monday", 1,30,19,00,thisTable)
     book = await booking("Meeting Room", "Tuesday", 9,30,10,30,thisTable)
+    book = await booking("Tutorial Room", "Tuesday", 9,30,10,30,thisTable)
     #book = await booking("Study Room", "Monday", 0,00,0,30,thisTable)
     print("Booking ID:", book)
     #freeTable = await avail("Meeting Room", "Monday", thisTable)
     #print("Free Table:", freeTable)
+    changed = await changeBooking(111921, -1, thisTable) #assume advance is negative and postponse is positive
+    print("Booking Change: ", changed)
 
 
 asyncio.run(main())

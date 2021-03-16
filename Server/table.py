@@ -19,6 +19,21 @@ class Table:
                     raise Exception("Conflict booking "+ value + " on " + misc.Misc.slot2time(i))
             self.wholeTable[j][i] = (self.wholeTable[j][i] + (value,)) 
 
+    def updateTableRemove(self, j, i, value):
+        x=0
+        for k in range(len(self.wholeTable[j][i])):
+            if (value in self.wholeTable[j][i]):
+                print("k", k)
+                print("value", value)
+                self.wholeTable[j][i] = list(self.wholeTable[j][i])
+                #print(self.wholeTable[j][i])
+                self.wholeTable[j][i].pop(k)
+                self.wholeTable[j][i] = tuple(self.wholeTable[j][i])
+                x=1
+        if x==0:
+                raise Exception("Invalid")
+        #self.wholeTable[j][i] = (self.wholeTable[j][i] + (value,))     
+
     def searchTable(self, nameStr, j):
         #for j in range(7) >>j is day range
         searched = list(self.wholeTable[j][:])

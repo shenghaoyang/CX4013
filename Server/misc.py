@@ -11,6 +11,17 @@ class Misc:
             }[name]
         except KeyError:
             raise ValueError[name]
+    def num2Name(roomNum): 
+        try:
+            return {
+                1: "Meeting Room",
+                2: "Lecture Room",
+                3: "Tutorial Room",
+                4: "Reading Room",
+                5: "Study Room"
+            }[roomNum]
+        except KeyError:
+            raise ValueError[name]
 
     def day2Num(day):
         try:
