@@ -9,6 +9,13 @@ Arrayu8 = create_array_type('u8', u8)
 def __init__(self, table:table.Table):
     self.thisTable = table()
     
+# Declare callback receiver 
+# class CallbackReceiver():
+#     async def on_booking(nameStr : String) -> Void:
+#         await aprint(f"callback: some client made a booking on ", nameStr)
+#         return Void()
+#     async def on_changeBooking(nameStr: String )-> Void:
+#         await print(f"")
 
 async def server():
     print("hello")
@@ -57,6 +64,7 @@ async def booking(nameStr: String, day: String, startHour: u8, startMin: u8, end
             endStr = str(endSlot)
         confirmID = int(str(nameNum)+str(dayNum)+startStr+endStr)
         thisTable.bookingList.append(confirmID)
+        await callback(nameStr, thisTable)
         return confirmID
     except ValueError as e:
         print("Error at input", e)
@@ -95,16 +103,17 @@ async def changeBooking(bookingID: u8, offset: i64, thisTable: table.Table) -> i
         if endSlot < newStartSlot:
             endSlot = newStartSlot
         for i in range(startSlot, newStartSlot):
+            print(dayNum,i,nameStr)
             thisTable.updateTableRemove(dayNum,i,nameStr)
         for i in range(endSlot,newEndSlot):
             thisTable.updateTable(dayNum,i,nameStr)
-    searched = thisTable.searchTable(nameStr, dayNum)
-    print(searched)
-    if startSlot < 10:
+    #searched = thisTable.searchTable(nameStr, dayNum)
+    #print(searched)
+    if newStartSlot < 10:
         startStr = "0"+ str(newStartSlot)
     else:
         startStr = str(newStartSlot)
-    if endSlot < 10:
+    if newEndSlot < 10:
         endStr = "0" +str(newEndSlot)
     else:
         endStr = str(newEndSlot)
@@ -113,25 +122,53 @@ async def changeBooking(bookingID: u8, offset: i64, thisTable: table.Table) -> i
     for i in range(len(thisTable.bookingList)):
         if thisTable.bookingList[i] == oriBookingID:
             thisTable.bookingList[i] = confirmID 
+
+    await callback(nameStr, thisTable)
     return confirmID
+
+async def registerCallback(nameStr: String, monitorInterval: u8, ipadd: String, port: u8, thisTable: table.Table) -> i64:
+    entry = (str(nameStr), monitorInterval, str(ipadd), port)
+    #print(entry)
+    thisTable.callbackList.append(tuple(entry))
+    return 1
+
+async def callback(nameStr, thisTable: table.Table):
+    if len(thisTable.callbackList) > 0:
+        for i in thisTable.callbackList:
+            #print(i[0])
+            if nameStr == i[0]:
+                 print("Callback to", i[2], i[3], "regarding", nameStr)
+    
 
 async def main():
     await server()
     thisTable = table.Table()
     #bookingList = []
-    #freeTable = await avail("Meeting Room", "Monday", thisTable)
-    #print("Free Table:", freeTable)
+    freeTable = await avail("Meeting Room", "Tuesday", thisTable)
+    print("Free Table:", freeTable)
     book = await booking("Reading Room", "Monday", 1,30,19,00,thisTable)
+    print("Booking ID:", book)
     book = await booking("Meeting Room", "Tuesday", 9,30,10,30,thisTable)
+    print("Booking ID:", book)
     book = await booking("Tutorial Room", "Tuesday", 9,30,10,30,thisTable)
     #book = await booking("Meeting Room", "Tuesday", 23,00,23,30,thisTable)
     #book = await booking("Study Room", "Monday", 0,00,0,30,thisTable)
     print("Booking ID:", book)
     #freeTable = await avail("Meeting Room", "Monday", thisTable)
     #print("Free Table:", freeTable)
-    changed = await changeBooking(111921, 26, thisTable) #assume advance is negative and postponse is positive
-    print("New booking ID: ", changed)
-    print(thisTable.bookingList)
+    #changed = await changeBooking(111921, 26, thisTable) #assume advance is negative and postponse is positive
+    #print("New booking ID: ", changed)
+    #print(thisTable.bookingList)
+    await registerCallback("Meeting Room", 10, "127.0.0.1", "5000", thisTable)
+    await registerCallback("Reading Room", 15, "127.0.0.1", "5003", thisTable)
+    print(thisTable.callbackList)
+    book = await booking("Meeting Room", "Tuesday", 8,30,9,30,thisTable)
+    print("Booking ID:", book)
+    changed = await changeBooking(311921, -10, thisTable)
+    print("New Booking ID: ", changed)
+    freeTable = await avail("Meeting Room", "Tuesday", thisTable)
+    print("Free Table:", freeTable)
+
 
 
 asyncio.run(main())
