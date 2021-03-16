@@ -13,6 +13,10 @@ from serialization.derived import String, create_union_type
 from serialization.numeric import i64, u8
 from prompt_toolkit import prompt
 from typing import Union,TypeVar
+import jubatus
+from jubatus.common import Datum
+import msgpackrpc
+import time
 
 async def client():
     # Generate the proxy class for the remote object.
@@ -25,7 +29,44 @@ async def client():
     # The interface for setting these would probably change because they
     # may collide with the names of remote methods.
     proxy.set_semantics(InvocationSemantics.AT_LEAST_ONCE)
+"""
+    retry_max = 3      # maximum number of retries
+retry_interval = 3 # retry interval (sec)
 
+client = jubatus.Classifier(host, port, name, timeout)
+try:
+    retry_count = retry_max
+    while True:
+        try:
+
+            # performing RPC
+            client.classify(query_data)
+            break
+
+        # retry against transport error and timeout
+        except (msgpackrpc.error.TransportError, msgpackrpc.error.TimeoutError) as e:
+            # stop retrying if the number of retry reaches limit
+            retry_count -= 1
+            if retry_count <= 0:
+                raise
+
+            # preparing retry: close session explicitly and re-create client object
+            client.get_client().close()
+            client = jubatus.Classifier(host, port, name, timeout)
+
+            # retry after some interval
+            print e
+            time.sleep(retry_interval)
+            continue
+
+# catch any RPC exceptions
+except (msgpackrpc.error.RPCError, jubatus.common.client.InterfaceMismatch) as e:
+    print e
+
+finally:
+    # close session always
+    client.get_client().close()
+    """
     await aprint("client: connected")
     
     T = TypeVar('T')
