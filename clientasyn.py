@@ -11,6 +11,8 @@ from rpc.packet import InvocationSemantics
 from rpc.protocol import AddressType
 from serialization.derived import String, create_union_type
 from serialization.numeric import i64, u8
+from prompt_toolkit import prompt
+from typing import Union,TypeVar
 
 async def client():
     # Generate the proxy class for the remote object.
@@ -26,37 +28,48 @@ async def client():
 
     await aprint("client: connected")
     
-   
+    T = TypeVar('T')
 
-    async def inputdate():
-         string = await ainput("Enter Date:")
+    async def inputdate(date: T)-> Union[str, None]:
+        if date:
+         string = await ainput(prompt("Enter Date:"))
          date = await proxy.date_format(String(string))
          await aprint("Date Input:", date.value)
+         return date.value
          await facility()
+         
 
-    async def facility():
-           input = await int(ainput("Select facility : 1 - meeting rooms , 2 - lecture theatres 3- study room :"))
+    async def facility(facilityinput: T)-> Union[int, None]:
+         if facilityinput:
+           input = await int(ainput(prompt("Select facility : 1 - meeting rooms , 2 - lecture theatres 3- study room :")))
            facilityinput = await proxy.int(int(int))
            await aprint("Choosen Facilty\n".join(f"{i}: {facilityinput.value}" for i, facilityinput.value in 3))
-          
+           return facilityinput.value
 
-    async def facility1():
-           input = await int(ainput("Select facility : 1 - meeting rooms , 2 - lecture theatres 3- study room :"))
-           facilityinput = await proxy.int(int(int))
-           await aprint("Choosen Facilty\n".join(f"{i}: {facilityinput.value}" for i, facilityinput.value in 3))
+    async def facility1(facilityinput1:T)-> Union[int, None]:
+        if facilityinput1: 
+           input = await int(ainput(prompt("Select facility : 1 - meeting rooms , 2 - lecture theatres 3- study room :")))
+           facilityinput1 = await proxy.int(int(int))
+           await aprint("Choosen Facilty\n".join(f"{i}: {facilityinput1.value}" for i, facilityinput1.value in 3))
+           return facilityinput1.value
            await time
+         
+
            
     
-    async def time():
-           
-        string = await ainput("Enter time to book:")
+    async def time(time:T)-> Union[str, None]:
+       if time:    
+        string = await ainput(prmopt("Enter time to book:"))
         time = await proxy.time(String(string))
         await aprint("Entered Time:", time.value)
+        return time.value
 
-    async def Bookingid():
-         input = await int(ainput("Enter Your Booking ID"))
+    async def Bookingid(bookingidinput:T)-> Union[str, None]:
+        if bookingidinput:
+         input = await int(ainput(prompt("Enter Your Booking ID")))
          bookingidinput = await proxy.int(int(int))
          await aprint("BookingId Entered:", bookingidinput.value)
+         return bookingidinput.value
          await time()
 
     #async def Idempotent():
