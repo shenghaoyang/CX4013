@@ -6,11 +6,15 @@ Common RPC definitions.
 
 
 import inspect
-from typing import Callable, Any
+from typing import Callable, Any, Final
 from typing_extensions import Protocol
 from serialization.common import Serializable
 from abc import ABC
 from collections import Awaitable
+
+
+# Default server port for the CALRPC protocol.
+DEFAULT_PORT: Final = 5000
 
 
 class RemoteMethod(Protocol):
