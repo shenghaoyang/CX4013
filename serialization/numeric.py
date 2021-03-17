@@ -18,6 +18,15 @@ class Numeric(Serializable):
         self._v = 0
         self.value = value
 
+    def __str__(self) -> str:
+        return str(self.value)
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self.value})"
+
+    def __index__(self) -> int:
+        return self.value
+
     @classmethod
     def deserialize(cls, data: bytes) -> "Numeric":
         if len(data) < cls().size:

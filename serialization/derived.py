@@ -21,11 +21,21 @@ class Struct(Serializable):
 
     ELEMENTS: Tuple[Tuple[str, Type[Serializable]], ...] = tuple()
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         self._values_keyed = dict()
         for key, type_ in self.ELEMENTS:
             # zero-initialize all values
             self._values_keyed[key] = type_()
+
+        for k, v in kwargs.items():
+            if k not in self._values_keyed:
+                raise KeyError(f"element {k} does not exist")
+
+            self._values_keyed[k] = v.copy()
+
+    def __repr__(self) -> str:
+        params = ", ".join(f"{t[0]}={self[t[0]]!r}" for t in self.ELEMENTS)
+        return f"{self.__class__.__name__}({params})"
 
     @classmethod
     def deserialize(cls, data: bytes) -> "Struct":
@@ -81,8 +91,12 @@ class Array(Serializable, MutableSequence[Serializable]):
     Base class representing a CAL RPC Variable-length array.
     """
 
-    def __init__(self, values: Sequence[Serializable] = tuple()):
+    def __init__(self, values: Iterable[Serializable] = tuple()):
         self._values = list(values)
+
+    def __repr__(self) -> str:
+        params = ", ".join(repr(v) for v in self)
+        return f"{self.__class__.__name__}([{params}])"
 
     def __len__(self) -> int:
         return len(self._values)
@@ -166,6 +180,9 @@ class Union_(Serializable):
 
     def __init__(self, name: str, value: Serializable):
         self[name] = value
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self.name}, {self.value!r})"
 
     def __contains__(self, item: str) -> bool:
         return self.name == item
@@ -269,6 +286,9 @@ class Enum_(Serializable):
             else value
         )
 
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self.value!r})"
+
     @classmethod
     def deserialize(cls, data: bytes) -> "Enum_":
         val = u64.deserialize(data)
@@ -316,6 +336,12 @@ class String(Serializable):
 
     def __init__(self, val: str = ""):
         self.value = val
+
+    def __str__(self) -> str:
+        return self.value
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self.value!r})"
 
     @classmethod
     def deserialize(cls, data: bytes) -> "String":
