@@ -18,6 +18,8 @@ from serialization.derived import (
 )
 from serialization.numeric import u8
 from rpc.common import RemoteInterface, remotemethod
+from rpc.proxy import generate_proxy
+from rpc.skeleton import generate_skeleton
 
 
 # Contains an array of Strings.
@@ -282,11 +284,11 @@ class BookingServerImpl(BookingServer):
                 astart = start
                 aend = b.start
                 aduration = aend - astart
+                start = b.end
 
                 # Find next event if this event occupies
                 # first chunk of today.
                 if b.start.day != start.day:
-                    start = b.end
                     continue
 
                 # Ignore 0s periods
@@ -295,8 +297,6 @@ class BookingServerImpl(BookingServer):
 
                 # Extract periods of time where bookings can be made.
                 out.append(dtrange_as_rpc_tr(DateTimeRange(astart, aend)))
-
-                start = b.end
             else:
                 # Return any availability periods left after all earlier bookings.
                 if start < end:
@@ -388,3 +388,7 @@ class BookingServerImpl(BookingServer):
         :return: array of strings representing the names of facilities available.
         """
         return ArrayString(map(String, sorted(self._facids)))
+
+
+BookingServerProxy = generate_proxy(BookingServer)
+BookingServerSkeleton = generate_skeleton(BookingServer)
