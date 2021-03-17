@@ -279,11 +279,11 @@ class Table:
                 (bid,),
             )
 
-            vals = cur.fetchall()
-            if not vals:
+            vals = cur.fetchone()
+            if vals is None:
                 raise ValueError(f"booking with id {bid} not found for facility {fid}")
 
-            return TimeRange(*cur.fetchone())
+            return TimeRange(*vals)
 
     def book(self, fid: int, trange: TimeRange) -> int:
         """
