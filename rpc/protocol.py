@@ -26,6 +26,10 @@ from rpc.packet import (
 )
 
 
+# Signature of a pre-receive / pre-send hook.
+# Accepts packet to be sent / packet received and returns transformed packet, or
+# ``None`` to drop the packet.
+HookCallable = Callable[[bytes], Optional[bytes]]
 # We don't care what type it is so long as it is hashable.
 AddressType = TypeVar("AddressType", bound=Hashable)
 # The full client identifier consists of the client's network address + 32-bit client identifier.
@@ -723,6 +727,8 @@ class RPCClient(DatagramProtocol):
         peer_adr: AddressType,
         inactivity_timeout: int = 300,
         keepalive_interval: int = None,
+        pre_receive: HookCallable = None,
+        pre_send: HookCallable = None,
     ):
         """
         Create a new RPC client.
@@ -732,6 +738,9 @@ class RPCClient(DatagramProtocol):
             server before disconnecting from it.
         :param keepalive_interval: time (in seconds) between sending keepalive PING packets.
             Use ``None`` to infer from ``inactivity_timeout``.
+        :param pre_receive: pre-receive hook. Called right after receiving any packet before any
+            processing is done.
+        :param pre_send: pre-send hook. Called right before sending any packet.
         """
         self._txid = TransactionID.random()
         self._cid: int = 0
@@ -741,6 +750,8 @@ class RPCClient(DatagramProtocol):
             self._ping_interval = inactivity_timeout / 4
         else:
             self._ping_interval = keepalive_interval
+        self._pre_receive = pre_receive
+        self._pre_send = pre_send
 
         self._closed = False
         self._router = ReplyRouter()
@@ -764,6 +775,11 @@ class RPCClient(DatagramProtocol):
         """
         Send a packet to the server.
         """
+        if self._pre_send is not None:
+            data = self._pre_send(data)
+            if data is None:
+                return
+
         self._transport.sendto(data, self._peer)
 
     async def _ping_loop(self, interval: float):
@@ -883,6 +899,11 @@ class RPCClient(DatagramProtocol):
 
         if addr != self._peer:
             return
+
+        if self._pre_receive is not None:
+            data = self._pre_send(data)
+            if data is None:
+                return
 
         asyncio.create_task(self._process_task(data))
 
