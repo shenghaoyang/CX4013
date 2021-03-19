@@ -9,7 +9,7 @@ a single week.
 import datetime
 import sqlite3
 from pathlib import Path
-from typing import Final, Type
+from typing import Final, Type, Iterable
 from dataclasses import dataclass
 
 
@@ -141,16 +141,18 @@ class Table:
         :param path: path to database file.
         """
         self._conn = sqlite3.Connection(path)
-        self._allowed_facilities = frozenset(self.facilities())
+        self._facilities: dict[str, int] = {}
+
+        self._load_facilities()
 
     @classmethod
-    def new(cls: Type["Table"], path: Path, facilities: set[int]) -> "Table":
+    def new(cls: Type["Table"], path: Path, facilities: set[str]) -> "Table":
         """
         Create a new (empty) timetable.
 
         :param path: path to the database file. It will be erased if it exists, and
             created if it does not exist.
-        :param facilities: integer IDs of facilities that can be booked.
+        :param facilities: facilities that can be booked.
         """
         if path.exists():
             path.unlink()
@@ -159,11 +161,21 @@ class Table:
 
         with conn:
             conn.executescript("PRAGMA ENCODING = 'UTF-8';")
-            for f in facilities:
-                # No injection worries because we constrain names to integers.
-                # If the user messes up and passes a string, then it's their fault.
+
+            conn.execute(
+                """CREATE TABLE FAC_IDS(
+                   id INTEGER PRIMARY KEY,
+                   name TEXT UNIQUE)"""
+            )
+
+            conn.executemany(
+                "INSERT INTO FAC_IDS(id, name) VALUES(?, ?)", enumerate(facilities)
+            )
+
+            for i in range(len(facilities)):
+                # No injection worries because it's all numbers.
                 conn.execute(
-                    f"""CREATE TABLE f{f}(
+                    f"""CREATE TABLE f{i}(
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     start INTEGER UNIQUE NOT NULL,
                     end INTEGER UNIQUE NOT NULL)"""
@@ -173,40 +185,50 @@ class Table:
 
         return cls(path)
 
-    def facilities(self) -> set[int]:
+    def _load_facilities(self):
+        """
+        Populate the local facilities cache.
+        """
+        with self._conn:
+            cur = self._conn.execute("SELECT * FROM FAC_IDS")
+
+            def res_gen() -> Iterable[tuple[str, int]]:
+                while (r := cur.fetchone()) is not None:
+                    yield r[1], r[0]
+
+            self._facilities = dict(res_gen())
+
+    def _ensure_facility_exists(self, facility: str):
+        """
+        Ensure that a named facility exists in the booking database.
+
+        :param facility: facility to check for.
+        :raises KeyError: if the facility does not exist.
+        """
+        if facility not in self._facilities:
+            raise KeyError(f"facility {facility} does not exist")
+
+    @property
+    def facilities(self) -> set[str]:
         """
         Obtains the facilities available for booking.
         """
-        with self._conn:
-            cur = self._conn.execute(
-                '''SELECT name 
-                   FROM sqlite_master 
-                   WHERE type = "table"'''
-            )
+        return set(self._facilities)
 
-            def res_gen():
-                while (t := cur.fetchone()) is not None:
-                    if not t[0].startswith("f"):
-                        continue
-                    yield int(t[0][1:])
-
-            return set(res_gen())
-
-    def list_bookings(self, fid: int) -> list[tuple[int, TimeRange]]:
+    def list_bookings(self, facility: str) -> list[tuple[int, TimeRange]]:
         """
         Lists the bookings made for a particular facility.
 
-        :param fid: facility id.
+        :param facility: facility name.
         :return: list of ``(id, TimeRange)`` tuples, sorted in order of ascending start time.
-        :raises ValueError: if facility ID corresponds to nonexistent facility.
+        :raises KeyError: if facility does not exist.
         """
-        if fid not in self._allowed_facilities:
-            raise ValueError(f"facility {fid} does not exist")
+        self._ensure_facility_exists(facility)
 
         with self._conn:
             cur = self._conn.execute(
                 f"""SELECT *
-                    FROM f{fid}
+                    FROM f{self._facilities[facility]}
                     ORDER BY start"""
             )
 
@@ -216,65 +238,62 @@ class Table:
 
             return list(res_gen())
 
-    def check_avail(self, fid: int, trange: TimeRange) -> bool:
+    def check_avail(self, facility: str, trange: TimeRange) -> bool:
         """
         Check if a particular facility is available for booking.
 
-        :param fid: facility id.
+        :param facility: facility name
         :param trange: booking time range.
         :return: ``True`` if available, ``False`` otherwise.
-        :raises ValueError: if facility ID corresponds to nonexistent facility.
+        :raises KeyError: if facility does not exist.
         """
-        if fid not in self._allowed_facilities:
-            raise ValueError(f"facility {fid} does not exist")
+        self._ensure_facility_exists(facility)
 
         with self._conn:
             res = self._conn.execute(
                 f"""SELECT COUNT(*) 
-                   FROM f{fid}
+                   FROM f{self._facilities[facility]}
                    WHERE ((start < ?) AND (? < end))""",
                 (trange.end, trange.start),
             )
             return not bool(res.fetchone()[0])
 
-    def check_avail_excl(self, fid: int, excl_bid: int, trange: TimeRange) -> bool:
+    def check_avail_excl(self, facility: str, excl_bid: int, trange: TimeRange) -> bool:
         """
         Check if a particular facility is available for booking, excluding a particular facility-specific booking ID.
 
-        :param fid: facility id.
+        :param facility: facility name
         :param excl_bid: facility specific booking ID to exclude.
         :param trange: booking time range.
         :return: ``True`` if available, ``False`` otherwise.
-        :raises ValueError: if facility ID corresponds to nonexistent facility.
+        :raises KeyError: if facility does not exist.
         """
-        if fid not in self._allowed_facilities:
-            raise ValueError(f"facility {fid} does not exist")
+        self._ensure_facility_exists(facility)
 
         with self._conn:
             res = self._conn.execute(
                 f"""SELECT COUNT(*) 
-                   FROM f{fid}
+                   FROM f{self._facilities[facility]}
                    WHERE ((start < ?) AND (? < end)) AND
                          (id != ?)""",
                 (trange.end, trange.start, excl_bid),
             )
             return not bool(res.fetchone()[0])
 
-    def lookup(self, fid: int, bid: int) -> TimeRange:
+    def lookup(self, facility: str, bid: int) -> TimeRange:
         """
         Lookup an existing booking.
 
-        :param fid: facility ID.
+        :param facility: facility name.
         :param bid: facility-specific booking ID.
-        :raises ValueError: if facility ID corresponds to nonexistent facility.
+        :raises KeyError: if facility does not exist.
         """
-        if fid not in self._allowed_facilities:
-            raise ValueError(f"facility {fid} does not exist")
+        self._ensure_facility_exists(facility)
 
         with self._conn:
             cur = self._conn.execute(
                 f"""SELECT start, end
-                    FROM f{fid}
+                    FROM f{self._facilities[facility]}
                     WHERE id = ?""",
                 (bid,),
             )
@@ -285,77 +304,74 @@ class Table:
 
             return TimeRange(*vals)
 
-    def book(self, fid: int, trange: TimeRange) -> int:
+    def book(self, facility: str, trange: TimeRange) -> int:
         """
         Book a facility.
 
-        :param fid: facility id.
+        :param facility: facility name.
         :param trange: booking time range.
         :return: ID of the booking (unique to that facility only).
         :raises ValueError: if facility is not available during ``trange``.
-        :raises ValueError: if facility ID corresponds to nonexistent facility.
+        :raises KeyError: if facility does not exist.
         """
-        if fid not in self._allowed_facilities:
-            raise ValueError(f"facility {fid} does not exist")
+        self._ensure_facility_exists(facility)
 
         # todo do better locking
-        if not self.check_avail(fid, trange):
-            raise ValueError(f"facility {fid} not available during {trange}")
+        if not self.check_avail(facility, trange):
+            raise ValueError(f"facility {facility} not available during {trange}")
 
         with self._conn:
             res = self._conn.execute(
-                f"""INSERT INTO f{fid}(start, end) VALUES(?, ?)""",
+                f"INSERT INTO f{self._facilities[facility]}(start, end) VALUES(?, ?)",
                 (trange.start, trange.end),
             )
 
             return res.lastrowid
 
-    def modify(self, fid: int, bid: int, trange: TimeRange):
+    def modify(self, facility: str, bid: int, trange: TimeRange):
         """
         Modify a booking so that it occupies a new time range.
 
-        :param fid: facility ID.
-        :param bid: booking ID.
+        :param facility: facility name.
+        :param bid: facility-specific booking ID.
         :param trange: new time range.
         :raises ValueError: if facility is not available during ``trange``.
         :raises ValueError: if facility ID corresponds to nonexistent facility.
         """
-        if fid not in self._allowed_facilities:
-            raise ValueError(f"facility {fid} does not exist")
+        self._ensure_facility_exists(facility)
 
         # todo do better locking
-        if not self.check_avail_excl(fid, bid, trange):
-            raise ValueError(f"facility {fid} not available during {trange}")
+        if not self.check_avail_excl(facility, bid, trange):
+            raise ValueError(f"facility {facility} not available during {trange}")
 
         with self._conn:
             self._conn.execute(
-                f"""UPDATE f{fid}
+                f"""UPDATE f{self._facilities[facility]}
                     SET start = ?, end = ?
                     WHERE id = ?""",
                 (trange.start, trange.end, bid),
             )
 
-    def release(self, fid: int, bid: int):
+    def release(self, facility: str, bid: int):
         """
         Release a booking.
 
-        :param fid: facility ID.
+        :param facility: facility name.
         :param bid: booking ID.
         :raises ValueError: if booking with ID does not exist.
         :raises ValueError: if facility ID corresponds to nonexistent facility.
         """
-        if fid not in self._allowed_facilities:
-            raise ValueError(f"facility {fid} does not exist")
+        self._ensure_facility_exists(facility)
 
         try:
-            self.lookup(fid, bid)
+            self.lookup(facility, bid)
         except ValueError:
-            raise ValueError(f"no booking with id {bid} ")
+            raise ValueError(f"no booking with id {bid} exists")
 
         with self._conn:
             self._conn.execute(
                 f"""DELETE
-                   FROM f{fid}
+                   FROM f{self._facilities[facility]}
                    WHERE id = ?""",
                 (bid,),
             )

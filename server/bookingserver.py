@@ -6,6 +6,7 @@ booking system.
 """
 
 
+from binascii import a2b_base64, b2a_base64
 from datetime import timedelta, datetime
 from typing import Mapping, cast
 from server.bookingtable import Table, DateTimeRange, START_DATE
@@ -19,7 +20,6 @@ from serialization.derived import (
 from serialization.numeric import u8
 from rpc.common import RemoteInterface, remotemethod
 from rpc.proxy import generate_proxy
-from rpc.skeleton import generate_skeleton
 
 
 # Contains an array of Strings.
@@ -191,23 +191,20 @@ class BookingServer(RemoteInterface):
 
 
 class BookingServerImpl(BookingServer):
-    def __init__(self, bt: Table, facids: Mapping[str, id]):
+    def __init__(self, bt: Table):
         """
         Create a new booking server.
 
         :param bt: booking table to refer to.
-        :param facids: mapping used to map facility names to their IDs in the table.
         """
         self._bt = bt
-        # copy facids to prevent issues associated with modification.
-        self._facids = dict(facids)
         # todo lock database against concurrent modification.
         # might not be required since we don't come across any async
         # preemption points during modification of the database
 
-    def _split_and_validate_bid(self, bid: str) -> tuple[int, int]:
+    def _split_and_validate_bid(self, bid: str) -> tuple[str, int]:
         """
-        Split a booking ID into its constituent facility id, facility-specific booking id.
+        Split a booking ID into its constituent facility name and facility-specific booking id.
 
         Also checks if the booking ID is valid by looking up the facility ID and facility-specific
         booking ID.
@@ -215,22 +212,24 @@ class BookingServerImpl(BookingServer):
         :param bid: booking ID to split.
         :return: tuple ``(fid, fbid)``.
         :raises ValueError: on invalid booking id / id that corresponds to nonexistent booking.
+        :raises KeyError: if booking does not exist.
         """
         split = bid.split("-")
         if len(split) != 2:
             raise ValueError(f"expected single '-' in id")
 
         try:
-            fid, fbid = map(int, split)
+            facility = a2b_base64(split[0]).decode("utf-8")
+            bid = int(split[1])
         except ValueError:
-            raise ValueError(f"id components were not integers")
+            raise ValueError("ID malformed")
 
         try:
-            self._bt.lookup(fid, fbid)
-        except ValueError:
-            raise ValueError(f"id not found")
+            self._bt.lookup(facility, bid)
+        except KeyError:
+            raise
 
-        return fid, fbid
+        return facility, bid
 
     @remotemethod
     async def query_availability(
@@ -245,12 +244,6 @@ class BookingServerImpl(BookingServer):
             time ranges will be sorted in order of ascending time values.
         """
         facility = facility.value
-        try:
-            facid = self._facids[facility]
-        except KeyError:
-            return ArrayTimeRangeOrError(
-                "error", String(f"facility {facility} does not exist")
-            )
 
         if not len(days):
             return ArrayTimeRangeOrError("error", String("no days requested"))
@@ -259,9 +252,12 @@ class BookingServerImpl(BookingServer):
         days.sort(key=lambda v: v.value)
 
         # Already sorted in ascending order.
-        bookings: list[DateTimeRange] = list(
-            map(lambda t: t[1].as_dtrange(), self._bt.list_bookings(facid))
-        )
+        try:
+            bookings: list[DateTimeRange] = list(
+                map(lambda t: t[1].as_dtrange(), self._bt.list_bookings(facility))
+            )
+        except KeyError as e:
+            return ArrayTimeRangeOrError("error", String(e.args[0]))
 
         out = ArrayTimeRange()
         for d in days:
@@ -314,10 +310,6 @@ class BookingServerImpl(BookingServer):
         :return: booking ID or an error string.
         """
         facility = facility.value
-        try:
-            facid = self._facids[facility]
-        except KeyError:
-            return IDOrError("error", String(f"facility {facility} does not exist"))
 
         try:
             dtrange = rpc_tr_as_dtrange(trange)
@@ -325,11 +317,16 @@ class BookingServerImpl(BookingServer):
             return IDOrError("error", String(f"invalid time range"))
 
         try:
-            fbid = self._bt.book(facid, dtrange.as_trange())
-        except ValueError:
-            return IDOrError("error", String(f"facility {facility} unavailable"))
+            fbid = self._bt.book(facility, dtrange.as_trange())
+        except (ValueError, KeyError) as e:
+            return IDOrError("error", String(e.args[0]))
 
-        return IDOrError("id", String(f"{facid}-{fbid}"))
+        return IDOrError(
+            "id",
+            String(
+                f"{b2a_base64(facility.encode('utf-8'), newline=False).decode('utf-8')}-{fbid}"
+            ),
+        )
 
     @remotemethod
     async def modify(self, bid: String, delta: TimeDelta) -> IDOrError:
@@ -341,12 +338,12 @@ class BookingServerImpl(BookingServer):
         :return: original booking ID or an error string.
         """
         try:
-            fid, fbid = self._split_and_validate_bid(bid.value)
-        except ValueError:
-            return IDOrError("error", String(f"booking id {bid.value} invalid"))
+            facility, fbid = self._split_and_validate_bid(bid.value)
+        except (ValueError, KeyError) as e:
+            return IDOrError("error", String(e.args[0]))
 
         try:
-            old_dtrange = self._bt.lookup(fid, fbid).as_dtrange()
+            old_dtrange = self._bt.lookup(facility, fbid).as_dtrange()
             td = rpc_td_as_td(delta)
             new_dtrange = DateTimeRange(old_dtrange.start + td, old_dtrange.end + td)
         except ValueError:
@@ -355,7 +352,7 @@ class BookingServerImpl(BookingServer):
             )
 
         try:
-            self._bt.modify(fid, fbid, new_dtrange.as_trange())
+            self._bt.modify(facility, fbid, new_dtrange.as_trange())
         except ValueError:
             return IDOrError(
                 "error", String(f"altered booking conflicts with existing booking")
@@ -372,11 +369,11 @@ class BookingServerImpl(BookingServer):
         :return: original booking ID or an error string.
         """
         try:
-            fid, fbid = self._split_and_validate_bid(bid.value)
-        except ValueError:
-            return IDOrError("error", String(f"booking id {bid.value} invalid"))
+            facility, fbid = self._split_and_validate_bid(bid.value)
+        except ValueError as e:
+            return IDOrError("error", String(e.args[0]))
 
-        self._bt.release(fid, fbid)
+        self._bt.release(facility, fbid)
 
         return IDOrError("id", bid)
 
@@ -387,8 +384,7 @@ class BookingServerImpl(BookingServer):
 
         :return: array of strings representing the names of facilities available.
         """
-        return ArrayString(map(String, sorted(self._facids)))
+        return ArrayString(map(String, sorted(self._bt.facilities)))
 
 
 BookingServerProxy = generate_proxy(BookingServer)
-BookingServerSkeleton = generate_skeleton(BookingServer)
