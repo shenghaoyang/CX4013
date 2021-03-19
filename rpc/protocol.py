@@ -752,13 +752,19 @@ class RPCClient(DatagramProtocol):
     def connection_made(self, transport: transports.DatagramTransport):
         self._transport = transport
         # Obtain an ID.
-        self._transport.sendto(PacketHeader().serialize(), self._peer)
+        self._send(PacketHeader().serialize())
 
     def __bool__(self) -> bool:
         """
         Returns ``True`` if the client can be used for RPC calls.
         """
         return self._connected_event.is_set()
+
+    def _send(self, data: bytes):
+        """
+        Send a packet to the server.
+        """
+        self._transport.sendto(data, self._peer)
 
     async def _ping_loop(self, interval: float):
         """
@@ -768,11 +774,10 @@ class RPCClient(DatagramProtocol):
         """
         while True:
             await asyncio.sleep(interval)
-            self._transport.sendto(
+            self._send(
                 PacketHeader(
                     client_id=u32(self._cid), flags=PacketFlags.PING
-                ).serialize(),
-                self._peer,
+                ).serialize()
             )
 
     async def _inactivity_check_loop(self, after: float):
@@ -852,9 +857,7 @@ class RPCClient(DatagramProtocol):
             return
 
         if send_rst:
-            self._transport.sendto(
-                PacketHeader(flags=PacketFlags.RST).serialize(), self._peer
-            )
+            self._send(PacketHeader(flags=PacketFlags.RST).serialize())
 
         if (t := self._ping_task) is not None:
             t.cancel()
@@ -936,7 +939,7 @@ class RPCClient(DatagramProtocol):
             if i:
                 hdr.flags |= PacketFlags.REPLAYED
 
-            self._transport.sendto(hdr.serialize() + args, self._peer)
+            self._send(hdr.serialize() + args)
             # shouldn't race because it's single threaded, and we don't hit an await
             # till the future gets submitted.
             try:
@@ -958,7 +961,7 @@ class RPCClient(DatagramProtocol):
                 # doesn't matter if it gets lost because the server will age it
                 # out anyway.
                 hdr.flags = PacketFlags.ACK_REPLY
-                self._transport.sendto(hdr.serialize(), self._peer)
+                self._send(hdr.serialize())
 
             excc = estatus_to_exception(status)
             if excc is not None:
