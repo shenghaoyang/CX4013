@@ -37,7 +37,7 @@ class ResultCache(MutableMapping[int, bytes]):
     Class representing the RPC result cache.
     """
 
-    def __init__(self, lifetime: float = 60.0):
+    def __init__(self, lifetime: int = 60):
         """
         Create a new RPC result cache.
 
@@ -132,7 +132,7 @@ class RPCObjectServer:
     Class representing an object server providing access to a single remote object.
     """
 
-    def __init__(self, skel: Skeleton, lifetime: float = 3600):
+    def __init__(self, skel: Skeleton, lifetime: int = 60):
         """
         Create a new object server.
 
@@ -286,6 +286,7 @@ class ConnectedClient:
         skel: Skeleton,
         timeout_callback: Callable[[AddressType], None],
         inactivity_timeout: int = 300,
+        result_cache_timeout: int = 60,
     ):
         """
         Create a new connected client.
@@ -298,12 +299,14 @@ class ConnectedClient:
             is invoked. Use ``None`` to specify that no callback should be invoked.
         :param inactivity_timeout: time (in seconds) without receiving packets from the client
             before a client is disconnected.
+        :param result_cache_timeout: time (in seconds) to cache the result of a RPC call
+            invoked using at-most-once semantics.
         """
         self._loop = asyncio.get_running_loop()
         self._caddr = caddr
         self._transport = transport
         self._timeout_callback = timeout_callback
-        self._oserver = RPCObjectServer(skel, 300)
+        self._oserver = RPCObjectServer(skel, result_cache_timeout)
 
         # Needs to manage.
         # Maps transaction numbers to tasks spawned for handling them.
@@ -483,6 +486,8 @@ class RPCServer(DatagramProtocol):
         self,
         skel_fac: Callable[[AddressType], Skeleton],
         disconnect_callback: Callable[[AddressType], None],
+        inactivity_timeout: int = 300,
+        result_cache_timeout: int = 60,
     ):
         """
         Create a new RPC server.
@@ -492,10 +497,17 @@ class RPCServer(DatagramProtocol):
         :param disconnect_callback: callback that will be invoked on client disconnections.
             May be called immediately on disconnections. No guarantees as to whether
             ``loop.call_soon()`` will be used.
+        :param inactivity_timeout: amount of time (in seconds) without receiving a request
+            before a client is disconnected.
+        :param result_cache_timeout: amount of time (in seconds) to cache the result of an
+            RPC call made using at-most-once semantics.
         """
         # todo figure out how to age out clients
         self._skel_fac = skel_fac
         self._disconnect_callback = disconnect_callback
+        self._inactivity_timeout = inactivity_timeout
+        self._result_cache_timeout = result_cache_timeout
+
         # maps addresses to cid, server instance.
         self._clients: dict[AddressType, tuple[int, ConnectedClient]] = {}
         self._transport: Optional[transports.DatagramTransport] = None
@@ -587,7 +599,8 @@ class RPCServer(DatagramProtocol):
                 skel=skel,
                 transport=self._transport,
                 timeout_callback=self.disconnect_client,
-                inactivity_timeout=300,
+                inactivity_timeout=self._inactivity_timeout,
+                result_cache_timeout=self._result_cache_timeout,
             )
 
             # Register and send new CID
