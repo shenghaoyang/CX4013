@@ -178,7 +178,9 @@ class Union_(Serializable):
     NAME_TO_TAG: Mapping[str, int] = dict()
     NAME_TO_TYPE: Mapping[str, Type[Serializable]] = dict()
 
-    def __init__(self, name: str, value: Serializable):
+    def __init__(self, name: str, value: Serializable = None):
+        if value is None:
+            value = self.NAME_TO_TYPE[name]()
         self[name] = value
 
     def __repr__(self) -> str:
