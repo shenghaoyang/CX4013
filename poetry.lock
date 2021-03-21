@@ -1,12 +1,4 @@
 [[package]]
-name = "aioconsole"
-version = "0.3.1"
-description = "Asynchronous console and interfaces for asyncio"
-category = "main"
-optional = false
-python-versions = ">=3.6"
-
-[[package]]
 name = "appdirs"
 version = "1.4.4"
 description = "A small Python module for determining appropriate platform-specific dirs, e.g. a \"user data dir\"."
@@ -294,12 +286,9 @@ python-versions = "*"
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.9"
-content-hash = "ea96c0927bd852791c368f4baff833fc41e2b93f4e17b42ad7e53456ab0eeb04"
+content-hash = "94c07451c62bbb0e807bffc8564c8b77967406479110a1ef6686f1d9528b362c"
 
 [metadata.files]
-aioconsole = [
-    {file = "aioconsole-0.3.1.tar.gz", hash = "sha256:7c038bb40b7690bf5be6b17154830b7bff25e7be1c02d8420a346c3efbd5d8e5"},
-]
 appdirs = [
     {file = "appdirs-1.4.4-py2.py3-none-any.whl", hash = "sha256:a841dacd6b99318a741b166adb07e19ee71a274450e68237b4650ca1055ab128"},
     {file = "appdirs-1.4.4.tar.gz", hash = "sha256:7d5d0167b2b1ba821647616af46a749d1c653740dd0d2415100fe26e27afdf41"},

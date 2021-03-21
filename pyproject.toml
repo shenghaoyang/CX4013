@@ -9,7 +9,6 @@ license = "MIT"
 python = "^3.9"
 typing-extensions = "^3.7.4"
 boltons = "^20.2.1"
-aioconsole = "^0.3.1"
 prompt-toolkit = "^3.0.17"
 tabulate = "^0.8.9"
 
