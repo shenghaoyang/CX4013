@@ -17,6 +17,8 @@ async def create_server(
     laddr: AddressType,
     skel_factory: Callable[[AddressType], Skeleton],
     disconnect_callback: Callable[[AddressType, Skeleton], None],
+    inactivity_timeout: int = 300,
+    result_cache_timeout: int = 60,
     family=socket.AF_INET,
 ) -> RPCServer:
     """
@@ -25,6 +27,10 @@ async def create_server(
     :param laddr: local address of the server.
     :param skel_factory: skeleton factory function.
     :param disconnect_callback: disconnection callback.
+    :param inactivity_timeout: amount of time (in seconds) without receiving a request
+        before a client is disconnected.
+    :param result_cache_timeout: amount of time (in seconds) to cache the result of an
+        RPC call made using at-most-once semantics.
     :param family: server address family.
 
     :return: newly created RPC server.
@@ -32,10 +38,10 @@ async def create_server(
     loop = asyncio.get_running_loop()
 
     def pf():
-        return RPCServer(skel_factory, disconnect_callback)
+        return RPCServer(skel_factory, disconnect_callback, inactivity_timeout, result_cache_timeout)
 
     t, s = await loop.create_datagram_endpoint(
-        local_addr=laddr, family=family, protocol_factory=pf
+        local_addr=laddr, family=family, protocol_factory=pf,
     )
     s = cast(RPCServer, s)
 
@@ -61,11 +67,14 @@ async def create_and_connect_client(
         return RPCClient(peer_adr=raddr)
 
     loop = asyncio.get_running_loop()
-    t, c = await loop.create_datagram_endpoint(
+    _, c = await loop.create_datagram_endpoint(
         remote_addr=raddr, family=family, protocol_factory=cf
     )
 
     c = cast(RPCClient, c)
-    await c.wait_connected()
+    try:
+        await c.wait_connected()
+    except asyncio.CancelledError:
+        c.close()
 
     return c, proxy_factory(c)
