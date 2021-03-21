@@ -759,6 +759,7 @@ class RPCClient(DatagramProtocol):
         self._transport: Optional[transports.DatagramTransport] = None
         self._last_activity_time = time.monotonic()
         self._inactivity_check_task: Optional[asyncio.Task] = None
+        self._ping_task: Optional[asyncio.Task] = None
 
     def connection_made(self, transport: transports.DatagramTransport):
         self._transport = transport
