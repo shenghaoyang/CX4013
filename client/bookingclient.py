@@ -9,18 +9,18 @@ from serialization.numeric import u64
 from serialization.derived import create_enum_type
 from serialization.wellknown import Void
 from rpc.common import RemoteInterface, remotemethod
-from server.bookingserver import ArrayTimeRange, String
+from rpc.proxy import generate_proxy
+from server.types import ArrayTimeRange, String, rpc_tr_as_dtrange
 
 
 Action = create_enum_type("Action", ("CREATE", "RELEASE", "MODIFY"))
 
 
-class BookingNotificationReceiver(RemoteInterface):
+class BookingNotificationServer(RemoteInterface):
     @remotemethod
-    def notify(
+    async def notify(
         self,
         key: u64,
-        event: u64,
         action: Action,
         facility: String,
         tranges: ArrayTimeRange,
@@ -29,7 +29,6 @@ class BookingNotificationReceiver(RemoteInterface):
         Send a notification of a booking event.
 
         :param key: key provided when registering for notifications.
-        :param event: event counter.
         :param action: booking action performed.
         :param facility: name of facility that was involved in the event.
         :param tranges: time ranges associated with the event.
@@ -40,44 +39,44 @@ class BookingNotificationReceiver(RemoteInterface):
         """
 
 
-#
-#
-# class
-#
-#     In[1]:
-#     from rpc.proxy import generate_proxy
-#
-#     In[2]:
-#     from server.bookingserver import BookingServer
-#
-#     In[3]:
-#     from rpc.helpers import create_and_connect_client
-#
-#     In[4]:
-#     from serialization.numeric import u8
-#
-#     In[5]:
-#     from serialization.derived import String
-#
-#     In[6]:
-#     from server.bookingserver import ArrayDayOfWeek, DayOfWeek, TimeRange
-#
-#     In[7]:
-#     from server.bookingserver import Time
-# from rpc.proxy import generate_proxy
-# from server.bookingserver import BookingServer
-# from rpc.helpers import create_and_connect_client
-# from serialization.numeric import u8
-# from serialization.derived import String
-# from server.bookingserver import ArrayDayOfWeek, DayOfWeek, TimeRange
-# from server.bookingserver import Time
-# proxy_class = generate_proxy(BookingServer)
-# c, p = await create_and_connect_client(("127.0.0.1", 5000), proxy_class)
-# def print_availa(arr):
-#     for a in arr:
-#         print(rpc_tr_as_dtrange(a))
-# from server.bookingserver import rpc_tr_as_dtrange
-# days = ArrayDayOfWeek()
-# days.append(DayOfWeek(DayOfWeek.VALUES.SUNDAY))
-#
-# print_availa((await p.query_availability(String("LKC-LT"), days)).value)
+BookingNotificationServerProxy = generate_proxy(BookingNotificationServer)
+
+
+class BookingNotificationServerImpl(BookingNotificationServer):
+    def __init__(self):
+        self._last_notif = ""
+
+    @remotemethod
+    async def notify(
+        self, key: u64, action: Action, facility: String, tranges: ArrayTimeRange
+    ) -> Void:
+        key = int(key)
+        action = action.value
+        facility = str(facility)
+        tranges = list(map(rpc_tr_as_dtrange, tranges))
+
+        format = "%H:%M %A"
+        start = tranges[0].start.strftime(format)
+        end = tranges[0].end.strftime(format)
+
+        if action == Action.VALUES.CREATE:
+            self._last_notif = f"{facility} was booked from {start} to {end}."
+        elif action == Action.VALUES.RELEASE:
+            self._last_notif = f"{facility} is now available from {start} to {end}."
+        elif action == Action.VALUES.MODIFY:
+            nstart = tranges[1].start.strftime(format)
+            nend = tranges[1].end.strftime(format)
+            self._last_notif = (
+                f"{facility} was booked from {nstart} to {nend}.\n"
+                f"{facility} is now available from {start} to {end}."
+            )
+
+        return Void()
+
+    def latest_notification(self) -> str:
+        """
+        Obtain a string representing the latest notification received.
+
+        May be an empty string if no message was received yet.
+        """
+        return self._last_notif

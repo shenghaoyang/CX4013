@@ -17,19 +17,23 @@ from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.validation import Validator, ValidationError
 from prompt_toolkit.shortcuts import clear
 from serialization.derived import String
-from serialization.numeric import u8
+from serialization.numeric import u8, u32, u64
+from rpc.skeleton import generate_skeleton, Skeleton
 from rpc.common import DEFAULT_PORT
+from rpc.protocol import AddressType
 from server.bookingtable import START_DATE
-from server.bookingserver import (
-    BookingServerProxy,
+from server.bookingserver import BookingServerProxy
+from client.bookingclient import BookingNotificationServerImpl
+from server.types import (
     DayOfWeek,
     ArrayDayOfWeek,
     rpc_tr_as_dtrange,
     dtrange_as_rpc_tr,
     DateTimeRange,
     TimeDelta,
+    ipp_as_rpc_ipp,
 )
-from rpc.helpers import create_and_connect_client
+from rpc.helpers import create_and_connect_client, create_server
 from collections.abc import Sequence
 
 
@@ -38,36 +42,47 @@ class Repl:
     Client REPL.
     """
 
-    LABELS = ("showavail", "book", "cancel", "modify", "list", "exit")
+    LABELS = ("showavail", "book", "cancel", "modify", "list", "register", "exit")
     DESCRIPTIONS = (
         "Show availability of a facility",
         "Book a facility",
         "Cancel a booking",
         "Modify a booking",
         "List facilities available",
+        "Register for booking notifications",
         "Exit program",
     )
+    LABEL_MAX_LENGTH = max(map(len, LABELS))
 
-    def __init__(self, proxy: BookingServerProxy):
+    def __init__(
+        self,
+        proxy: BookingServerProxy,
+        cbaddr: AddressType,
+        notification_server: BookingNotificationServerImpl,
+    ):
         """
         Initialize the REPL.
 
         :param proxy: booking server proxy object.
+        :param cbaddr: booking notification callback address.
+        :param notification_server: booking notification server.
         """
-        # mlen = max(map(len, self.LABELS))
-        # self._labels = tuple(map(lambda s: s.rjust(mlen), self.LABELS))
         self._proxy = proxy
+        self._cbaddr = cbaddr
         self._handlers = (
             self.show_availability,
             self.book,
             self.cancel,
             self.modify,
             self.list_facilities,
+            self.register_notifications,
             None,
         )
         self._commands = dict((l, self._handlers[i]) for i, l in enumerate(self.LABELS))
         self._known_facilities = set()
-        self._session = PromptSession()
+        self._session = PromptSession(
+            bottom_toolbar=notification_server.latest_notification
+        )
 
     async def _prompt_facility(self) -> str:
         return await self._session.prompt_async(
@@ -76,14 +91,19 @@ class Repl:
             completer=WordCompleter(list(self._known_facilities)),
         )
 
-    async def _prompt_dow(self, max: int = 1) -> set[DayOfWeek.VALUES]:
+    async def _prompt_dow(
+        self,
+        max: int = 1,
+        exclude: Sequence[DayOfWeek.VALUES] = (DayOfWeek.VALUES.NEXT_MONDAY,),
+    ) -> set[DayOfWeek.VALUES]:
         """
         Prompt for days of the week.
 
         :param max: maximum number of days to accept.
+        :param exclude: day of week to exclude.
         """
-        names = set(v.name for v in DayOfWeek.VALUES)
-        completer = WordCompleter(list(names), ignore_case=True)
+        names = list(v.name for v in DayOfWeek.VALUES if v not in exclude)
+        completer = WordCompleter(names, ignore_case=True)
 
         class DowValidator(Validator):
             def validate(self, document: Document):
@@ -128,7 +148,7 @@ class Repl:
                 validator=validator,
             )
         )
-        dow = await self._prompt_dow()
+        dow = await self._prompt_dow(exclude=tuple())
         dt += datetime.timedelta(days=next(iter(dow)).value)
 
         return dt
@@ -143,15 +163,30 @@ class Repl:
                         0, f"expecting two components separated by a dash (-)"
                     )
 
-                for i, component in enumerate(components):
-                    if not component.isnumeric():
-                        raise ValidationError(
-                            s.rfind(component) if not i else s.find(component),
-                            f"{component} is not an integer",
-                        )
-
         return await self._session.prompt_async(
             HTML("<i>Booking <b>ID</b></i>? >>> "), validator=BookingIDValidator()
+        )
+
+    async def _prompt_monitoring_time(self) -> u32:
+        class U32Validator(Validator):
+            def validate(self, document: Document):
+                s = document.text
+                try:
+                    v = int(s)
+                except ValueError:
+                    raise ValidationError(0, "expecting an integer")
+
+                vmin, vmax = u32.min(), u32.max()
+                if not (vmin <= v <= vmax):
+                    raise ValidationError(0, f"value must be within [{vmin}, {vmax}]")
+
+        return u32(
+            int(
+                await self._session.prompt_async(
+                    HTML("<i>Monitoring <b>Time</b>(s)</i>? >>> "),
+                    validator=U32Validator(),
+                )
+            )
         )
 
     async def _prompt_timedelta(self) -> TimeDelta:
@@ -311,6 +346,33 @@ class Repl:
 
         self._known_facilities.update(facilities)
 
+    async def register_notifications(self):
+        facility = await self._prompt_facility()
+        monitoring_time = await self._prompt_monitoring_time()
+
+        res = await self._proxy.register_notification(
+            ipp_as_rpc_ipp(self._cbaddr), u64(0), String(facility), monitoring_time
+        )
+
+        if "error" in res:
+            self._print_error(res.value)
+            return
+
+        self._known_facilities.add(facility)
+
+        clear()
+        print(
+            HTML(
+                f"<ansigreen>Successfully</ansigreen> registered for notifications regarding <u>{facility}</u>"
+            )
+        )
+
+    async def set_invocation_semantics(self):
+        pass
+
+    async def set_timeout_retry(self):
+        pass
+
     async def run(self):
         completer = WordCompleter(list(self.LABELS))
         validator = Validator.from_callable(
@@ -318,19 +380,30 @@ class Repl:
         )
 
         while True:
-            print(HTML("<b>Available commands:</b>\n"))
-            for i, command in enumerate(self.LABELS):
-                print(HTML(f"<u><b>{command}</b></u>: {self.DESCRIPTIONS[i]}"))
-            print("")
+            try:
+                print(HTML("<b>Commands:</b>\n"))
+                for i, command in enumerate(self.LABELS):
+                    print(
+                        HTML(
+                            f"<ansigreen><b>{command.rjust(self.LABEL_MAX_LENGTH)}</b></ansigreen>: {self.DESCRIPTIONS[i]}"
+                        )
+                    )
+                print("")
 
-            cmd = await self._session.prompt_async(
-                HTML("<i>command?</i> >>> "), completer=completer, validator=validator
-            )
+                cmd = await self._session.prompt_async(
+                    HTML("<i>command?</i> >>> "),
+                    completer=completer,
+                    validator=validator,
+                )
 
-            if cmd == "exit":
+                if cmd == self.LABELS[-1]:
+                    return
+
+                await self._commands[cmd]()
+            except KeyboardInterrupt:
+                continue
+            except EOFError:
                 return
-
-            await self._commands[cmd]()
 
 
 async def main(args: Sequence[str]) -> int:
@@ -347,9 +420,9 @@ async def main(args: Sequence[str]) -> int:
         "--sport", help="port to connect to on server", type=int, default=DEFAULT_PORT
     )
     parser.add_argument(
-        "--caddr",
-        help="IPv4 address used for listening to callbacks",
-        default="0.0.0.0",
+        "LISTEN",
+        help="IPv4 address used for listening to callbacks. Must not be a wildcard address.",
+        default="127.0.0.1",
     )
     parser.add_argument(
         "--cport",
@@ -367,6 +440,23 @@ async def main(args: Sequence[str]) -> int:
     except argparse.ArgumentError:
         return 1
 
+    # Setup the notification server.
+    skel = generate_skeleton(BookingNotificationServerImpl)
+    ns = BookingNotificationServerImpl()
+
+    def skel_fac(addr: AddressType) -> Skeleton:
+        so_skel = skel(ns)
+        return so_skel
+
+    def disconnect_callback(addr: AddressType):
+        pass
+
+    # Create notification server.
+    s = await create_server(
+        (args.LISTEN, args.cport),
+        skel_fac,
+        disconnect_callback,
+    )
     # Attempt to connect to the server.
     print(HTML(r"<b>Connecting to RPC server</b>"))
     try:
@@ -380,10 +470,11 @@ async def main(args: Sequence[str]) -> int:
         return 1
 
     clear()
-    repl = Repl(p)
-    await repl.run()
-
-    c.close()
+    repl = Repl(p, (args.LISTEN, args.cport), ns)
+    try:
+        await repl.run()
+    finally:
+        c.close()
 
 
 if __name__ == "__main__":
