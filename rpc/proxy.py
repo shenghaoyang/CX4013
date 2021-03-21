@@ -6,20 +6,15 @@ RPC proxy generator.
 
 
 import inspect
-import asyncio
-from boltons.funcutils import FunctionBuilder
 from abc import ABC
-from serialization.common import Serializable
-from rpc.exceptions import ArgumentSerializationError, ReturnDeserializationError
+from typing import Type, Callable, cast
+
+from boltons.funcutils import FunctionBuilder
+
 from rpc.common import RemoteMethod, is_remotemethod, RemoteInterface
+from rpc.exceptions import ArgumentSerializationError, ReturnDeserializationError
 from rpc.protocol import RPCClient
-from rpc.packet import InvocationSemantics
-from typing import Optional, Type, Callable, cast
-
-
-class ProxyController:
-    def __init__(self):
-        pass
+from serialization.common import Serializable
 
 
 class Proxy(ABC):
@@ -30,32 +25,6 @@ class Proxy(ABC):
     def __init__(self, client: RPCClient):
         # Default uses at least once semantics
         self._client = client
-        self._semantics = InvocationSemantics.AT_LEAST_ONCE
-        self._timeout: Optional[float] = None
-        self._retries: int = 0
-
-    def set_semantics(self, semantics: InvocationSemantics):
-        self._semantics = semantics
-
-    def set_timings(self, timeout: Optional[float] = None, retries: Optional[int] = 0):
-        """
-        Set the RPC invocation timings.
-
-        :param timeout: RPC invocation timeout. ``None`` for no timeout.
-        :param retries: number of retries to make within timeout. Cannot be > ``0``
-            if timeout is ``None``.
-        """
-        if timeout is not None and timeout < 0:
-            raise ValueError(f"negative timeout")
-
-        if retries < 0:
-            raise ValueError(f"negative retries")
-
-        if retries > 0 and timeout is None:
-            raise ValueError(f"retries nonzero when timeout is None")
-
-        self._timeout = timeout
-        self._retries = retries
 
 
 def proxy(remote_method: RemoteMethod, ordinal: int) -> Callable:
@@ -90,9 +59,7 @@ def proxy(remote_method: RemoteMethod, ordinal: int) -> Callable:
             except Exception as e:
                 raise ArgumentSerializationError(f"argument {i}: {arg}") from e
 
-        ret = await self._client.call(
-            ordinal, arguments, self._semantics, self._timeout, self._retries
-        )
+        ret = await self._client.call(ordinal, arguments)
 
         try:
             return returntype.deserialize(ret)

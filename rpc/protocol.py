@@ -5,16 +5,15 @@ RPC protocol handler implementations.
 """
 
 
-import time
 import asyncio
 import random
+import time
 from asyncio import DatagramProtocol, transports
-from typing import Optional, TypeVar, Hashable, Callable, Iterator, Union
 from collections.abc import MutableMapping, Coroutine, Mapping
-from serialization.numeric import u32
 from functools import partial
+from typing import Optional, TypeVar, Hashable, Callable, Iterator, Union
+
 from rpc import exceptions
-from rpc.skeleton import Skeleton
 from rpc.packet import (
     PacketHeader,
     PacketFlags,
@@ -24,7 +23,8 @@ from rpc.packet import (
     TransactionID,
     estatus_to_exception,
 )
-
+from rpc.skeleton import Skeleton
+from serialization.numeric import u32
 
 # Signature of a pre-receive / pre-send hook.
 # Accepts packet to be sent / packet received and returns transformed packet, or
@@ -760,6 +760,9 @@ class RPCClient(DatagramProtocol):
         self._last_activity_time = time.monotonic()
         self._inactivity_check_task: Optional[asyncio.Task] = None
         self._ping_task: Optional[asyncio.Task] = None
+        self._semantics = InvocationSemantics.AT_LEAST_ONCE
+        self._timeout: Optional[float] = None
+        self._retries: int = 0
 
     def connection_made(self, transport: transports.DatagramTransport):
         self._transport = transport
@@ -919,13 +922,73 @@ class RPCClient(DatagramProtocol):
 
         await self._connected_event.wait()
 
+    @property
+    def semantics(self) -> InvocationSemantics:
+        """
+        Obtain the invocation semantics that will be used for calls through the proxy.
+        """
+        return self._semantics
+
+    @semantics.setter
+    def semantics(self, semantics: InvocationSemantics):
+        """
+        Set the invocation semantics that will be used for subsequent calls through the proxy.
+
+        :param semantics: invocation semantics.
+        """
+        self._semantics = semantics
+
+    @property
+    def timeout(self) -> Optional[float]:
+        """
+        Retrieve the RPC invocation timeout.
+
+        Subsequent calls through the proxy will time out once the returned time period
+        (in seconds) have passed.
+
+        ``None`` represents no timeout, and the client will wait for replies indefinitely.
+        No retries will be sent in that case.
+        """
+        return self._timeout
+
+    @timeout.setter
+    def timeout(self, seconds: Optional[float]):
+        """
+        Set the RPC invocation timeout.
+
+        :param seconds: timeout in seconds. Use ``None`` for no timeout.
+            Must be non-negative if not ``None``.
+        """
+        if (seconds is not None) and (seconds < 0):
+            raise ValueError(f"negative")
+
+        self._timeout = seconds
+
+    @property
+    def retries(self) -> int:
+        """
+        Obtain the number of request retries that will be attempted within the configured
+        ``timeout`` period.
+        """
+        return self._retries
+
+    @retries.setter
+    def retries(self, count: int):
+        """
+        Set the number of request retries that will be attempted within the configured
+        ``timeout`` period.
+
+        :param count: number of retries. Must be non-negative.
+        """
+        if count < 0:
+            raise ValueError(f"negative")
+
+        self._retries = count
+
     async def call(
         self,
         ordinal: int,
         args: bytes,
-        semantics: InvocationSemantics = InvocationSemantics.AT_LEAST_ONCE,
-        timeout: Optional[float] = None,
-        retries: Optional[int] = 0,
     ) -> bytes:
         """
         Call a remote method.
@@ -934,10 +997,6 @@ class RPCClient(DatagramProtocol):
 
         :param ordinal: ordinal of the remote method.
         :param args: serialized arguments for the remote method.
-        :param semantics: method invocation semantics.
-        :param timeout: RPC invocation timeout. ``None`` for no timeout.
-        :param retries: number of retries to make within timeout. Cannot be > ``0``
-            if timeout is ``None``.
         :return: serialized return value for the remote method.
         :raises exceptions.RPCConnectionClosedError: if the connection has been closed.
         """
@@ -945,8 +1004,13 @@ class RPCClient(DatagramProtocol):
         if not self:
             await self.wait_connected()
 
-        timeout = timeout if not timeout else (timeout / retries)
-        tries = retries + 1
+        # cache all configuration parameters so they remain consistent
+        # for this call.
+        timeout = self.timeout
+        if (self.timeout is not None) and (self.retries > 0):
+            timeout /= self.retries
+        tries = self.retries + 1
+        semantics = self.semantics
 
         # Generate initial header.
         tid = self._txid.next().copy()
