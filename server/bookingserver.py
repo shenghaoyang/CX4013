@@ -6,134 +6,36 @@ booking system.
 """
 
 
+import asyncio
 from binascii import a2b_base64, b2a_base64
-from datetime import timedelta, datetime
-from typing import Mapping, cast
+from datetime import timedelta
+from typing import cast
+from dataclasses import dataclass
+from collections.abc import Sequence
 from server.bookingtable import Table, DateTimeRange, START_DATE
-from serialization.derived import (
-    create_struct_type,
-    create_enum_type,
-    create_array_type,
-    create_union_type,
-    String,
+from server.types import (
+    ArrayString,
+    ArrayDayOfWeek,
+    ArrayTimeRangeOrError,
+    TimeRange,
+    IDOrError,
+    TimeDelta,
+    IPv4AddressPort,
+    DayOfWeek,
+    ArrayTimeRange,
+    dtrange_as_rpc_tr,
+    rpc_tr_as_dtrange,
+    rpc_td_as_td,
+    rpc_ipp_as_ipp,
 )
-from serialization.numeric import u8
+from client.bookingclient import BookingNotificationServerProxy, Action
+from serialization.derived import String
+from serialization.wellknown import VoidOrError
+from serialization.numeric import u32, u64
 from rpc.common import RemoteInterface, remotemethod
 from rpc.proxy import generate_proxy
-
-
-# Contains an array of Strings.
-ArrayString = create_array_type("String", String)
-
-# Encodes a day of week.
-DayOfWeek = create_enum_type(
-    "DayOfWeek",
-    (
-        "MONDAY",
-        "TUESDAY",
-        "WEDNESDAY",
-        "THURSDAY",
-        "FRIDAY",
-        "SATURDAY",
-        "SUNDAY",
-        "NEXT_MONDAY",
-    ),
-)
-
-# Array containing multiple days of the week.
-ArrayDayOfWeek = create_array_type("DayOfWeek", DayOfWeek)
-
-
-# Encodes a time delta.
-TimeDelta = create_struct_type(
-    "TimeDelta", (("hours", u8), ("minutes", u8), ("negative", u8))
-)
-
-# Encodes a timestamp.
-Time = create_struct_type(
-    "Time", (("hour", u8), ("minute", u8), ("dayofweek", DayOfWeek))
-)
-
-# Encodes a half-open time range, [start, end).
-TimeRange = create_struct_type("TimeRange", (("start", Time), ("end", Time)))
-
-ArrayTimeRange = create_array_type("TimeRange", TimeRange)
-
-
-# Encodes a time range, or an error string.
-ArrayTimeRangeOrError = create_union_type(
-    "ArrayTimeRangeOrError", (("array", ArrayTimeRange), ("error", String))
-)
-
-# Encodes a booking ID, or an error string.
-IDOrError = create_union_type("IDOrError", (("id", String), ("error", String)))
-
-
-def rpc_td_as_td(rpc_td: TimeDelta) -> timedelta:
-    """
-    Represent a RPC ``TimeDelta`` value as a ``timedelta`` instance.
-
-    :param rpc_td: ``TimeDelta`` value to use.
-    """
-    mult = -1 if cast(u8, rpc_td["negative"]).value else 1
-
-    return (
-        timedelta(
-            hours=cast(u8, rpc_td["hours"]).value,
-            minutes=cast(u8, rpc_td["minutes"]).value,
-        )
-        * mult
-    )
-
-
-def dt_as_rpc_t(dt: datetime) -> Time:
-    """
-    Represent a ``datetime`` value as an RPC ``Time`` type.
-
-    :param dt: datetime value to use.
-    """
-    # noinspection PyCallingNonCallable
-    return Time(
-        hour=u8(dt.hour),
-        minute=u8(dt.minute),
-        dayofweek=DayOfWeek(DayOfWeek.VALUES(dt.day - START_DATE.day)),
-    )
-
-
-def dtrange_as_rpc_tr(dtrange: DateTimeRange) -> TimeRange:
-    """
-    Represent a ``DateTimeRange`` as an RPC ``TimeRange`` type.
-
-    :param dtrange: date time range to use.
-    """
-    return TimeRange(start=dt_as_rpc_t(dtrange.start), end=dt_as_rpc_t(dtrange.end))
-
-
-def rpc_t_as_dt(rpc_t: Time) -> datetime:
-    """
-    Represent a RPC ``Time`` instance as a ``datetime``.
-
-    :param rpc_t: time instance to use.
-    :raises ValueError: if the ``Time`` instance cannot be represented as a ``datetime``.
-    """
-    return START_DATE + timedelta(
-        hours=cast(u8, rpc_t["hour"]).value,
-        minutes=cast(u8, rpc_t["minute"]).value,
-        days=cast(DayOfWeek, rpc_t["dayofweek"]).value.value,
-    )
-
-
-def rpc_tr_as_dtrange(rpc_tr: TimeRange) -> DateTimeRange:
-    """
-    Represent an RPC ``TimeRange`` instance as a ``DateTimeRange``.
-
-    :param rpc_tr: time range to use.
-    :raises ValueError: if the ``TimeRange`` cannot be converted into a valid ``DateTimeRange``.
-    """
-    return DateTimeRange(
-        start=rpc_t_as_dt(cast(Time, rpc_tr["start"])),
-        end=rpc_t_as_dt(cast(Time, rpc_tr["end"])),
-    )
+from rpc.protocol import RPCClient
+from rpc.helpers import create_and_connect_client
 
 
 class BookingServer(RemoteInterface):
@@ -189,18 +91,57 @@ class BookingServer(RemoteInterface):
         :return: array of strings representing the names of facilities available.
         """
 
+    @remotemethod
+    async def register_notification(
+        self, to: IPv4AddressPort, key: u64, facility: String, seconds: u32
+    ) -> VoidOrError:
+        """
+        Register for notifications regarding bookings made on a particular
+        facility.
+
+        :param to: server to send notifications to.
+            A new connection will be made for each registration.
+        :param key: key that will be provided with each notification.
+        :param facility: facility to watch.
+        :param seconds: number of seconds to watch facility for.
+        :return: error message on failure to register, ``Void`` otherwise.
+        """
+
+
+@dataclass(frozen=True)
+class NotificationServer:
+    """
+    Dataclass representing a connected notification server.
+    """
+
+    # Facility that this server is interested in.
+    facility: str
+    # Key to return to server.
+    key: int
+    # RPC client used to manage the connection.
+    client: RPCClient
+    # Proxy used for RPC notifications.
+    proxy: BookingNotificationServerProxy
+    # Task used to gate the lifetime of this connection.
+    task: asyncio.Task
+
 
 class BookingServerImpl(BookingServer):
-    def __init__(self, bt: Table):
+    def __init__(self, bt: Table, shared_with: set["BookingServerImpl"]):
         """
         Create a new booking server.
 
         :param bt: booking table to refer to.
+        :param shared_with: booking servers sharing access to the same table.
         """
         self._bt = bt
+        self._shared_with = shared_with
+        self._notification_servers: set[NotificationServer] = set()
         # todo lock database against concurrent modification.
         # might not be required since we don't come across any async
         # preemption points during modification of the database
+
+        self._shared_with.add(self)
 
     def _split_and_validate_bid(self, bid: str) -> tuple[str, int]:
         """
@@ -235,14 +176,6 @@ class BookingServerImpl(BookingServer):
     async def query_availability(
         self, facility: String, days: ArrayDayOfWeek
     ) -> ArrayTimeRangeOrError:
-        """
-        Query for the availability of a given facility.
-
-        :param facility: facility name.
-        :param days: days to query availability for.
-        :return: array of time ranges that the facility is available for, or an error string.
-            time ranges will be sorted in order of ascending time values.
-        """
         facility = facility.value
 
         if not len(days):
@@ -302,13 +235,6 @@ class BookingServerImpl(BookingServer):
 
     @remotemethod
     async def book(self, facility: String, trange: TimeRange) -> IDOrError:
-        """
-        Book a facility.
-
-        :param facility: facility name.
-        :param trange: time range to book for.
-        :return: booking ID or an error string.
-        """
         facility = facility.value
 
         try:
@@ -321,6 +247,15 @@ class BookingServerImpl(BookingServer):
         except (ValueError, KeyError) as e:
             return IDOrError("error", String(e.args[0]))
 
+        tasks = [
+            asyncio.create_task(
+                s.send_notification(Action.VALUES.CREATE, facility, (dtrange,))
+            )
+            for s in self._shared_with
+        ]
+
+        await asyncio.wait(tasks)
+
         return IDOrError(
             "id",
             String(
@@ -330,13 +265,6 @@ class BookingServerImpl(BookingServer):
 
     @remotemethod
     async def modify(self, bid: String, delta: TimeDelta) -> IDOrError:
-        """
-        Modify a booking.
-
-        :param bid: booking ID.
-        :param delta: amount of time to shift booking for.
-        :return: original booking ID or an error string.
-        """
         try:
             facility, fbid = self._split_and_validate_bid(bid.value)
         except (ValueError, KeyError) as e:
@@ -358,33 +286,122 @@ class BookingServerImpl(BookingServer):
                 "error", String(f"altered booking conflicts with existing booking")
             )
 
+        tasks = [
+            asyncio.create_task(
+                s.send_notification(
+                    Action.VALUES.MODIFY, facility, (old_dtrange, new_dtrange)
+                )
+            )
+            for s in self._shared_with
+        ]
+
+        await asyncio.wait(tasks)
+
         return IDOrError("id", bid)
 
     @remotemethod
     async def cancel(self, bid: String) -> IDOrError:
-        """
-        Cancels an existing booking.
-
-        :param bid: booking ID.
-        :return: original booking ID or an error string.
-        """
         try:
             facility, fbid = self._split_and_validate_bid(bid.value)
         except ValueError as e:
             return IDOrError("error", String(e.args[0]))
 
+        trange = self._bt.lookup(facility, fbid)
         self._bt.release(facility, fbid)
+
+        tasks = [
+            asyncio.create_task(
+                s.send_notification(
+                    Action.VALUES.RELEASE, facility, (trange.as_dtrange(),)
+                )
+            )
+            for s in self._shared_with
+        ]
+
+        await asyncio.wait(tasks)
 
         return IDOrError("id", bid)
 
     @remotemethod
     async def facilities(self) -> ArrayString:
-        """
-        Obtains the facilities available for booking.
-
-        :return: array of strings representing the names of facilities available.
-        """
         return ArrayString(map(String, sorted(self._bt.facilities)))
+
+    @remotemethod
+    async def register_notification(
+        self, to: IPv4AddressPort, key: u64, facility: String, seconds: u32
+    ) -> VoidOrError:
+        try:
+            ipp = rpc_ipp_as_ipp(to)
+        except ValueError:
+            return VoidOrError("error", String("invalid notification server address"))
+
+        facility = str(facility)
+        if facility not in self._bt.facilities:
+            return VoidOrError("error", String(f"facility {facility} does not exist"))
+
+        try:
+            c, p = await asyncio.wait_for(
+                create_and_connect_client(ipp, BookingNotificationServerProxy), 10
+            )
+        except asyncio.TimeoutError:
+            return VoidOrError("error", String("timeout while connecting to server"))
+
+        # Notifications are best-effort only.
+        c.timeout = 0
+        c.retries = 0
+        key = int(key)
+        tsk = asyncio.create_task(asyncio.sleep(int(seconds)))
+        ns = NotificationServer(client=c, proxy=p, facility=facility, key=key, task=tsk)
+
+        self._notification_servers.add(ns)
+
+        def callback(_: asyncio.Task):
+            ns.client.close()
+            self._notification_servers.remove(ns)
+
+        tsk.add_done_callback(callback)
+
+        return VoidOrError("void")
+
+    async def send_notification(
+        self, action: Action.VALUES, facility: str, dtranges: Sequence[DateTimeRange]
+    ):
+        """
+        Send notifications to notification servers regarding booking actions.
+
+        :param facility: facility name.
+        :param action: booking action performed.
+        :param dtranges: time ranges involved.
+        """
+
+        rpc_dtranges = ArrayTimeRange(map(dtrange_as_rpc_tr, dtranges))
+        rpc_action = Action(action)
+        rpc_facility = String(facility)
+        tasks = dict(
+            (
+                asyncio.create_task(
+                    s.proxy.notify(u64(s.key), rpc_action, rpc_facility, rpc_dtranges)
+                ),
+                s,
+            )
+            for s in self._notification_servers
+            if s.facility == facility
+        )
+
+        # We use wait() here because we don't want the "don't abandon" behavior
+        if tasks:
+            await asyncio.wait(tasks)
+
+        # Disconnect notification servers that we failed to contact.
+        for task, ns in tasks.items():
+            if task.exception() is not None:
+                ns.task.cancel()
+
+    def handle_disconnect(self):
+        # cancel all the notification tasks and remove self from shared set.
+        self._shared_with.remove(self)
+        for s in self._notification_servers:
+            s.task.cancel()
 
 
 BookingServerProxy = generate_proxy(BookingServer)

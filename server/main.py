@@ -100,9 +100,13 @@ async def main(args: Sequence[str]) -> int:
 
     # Factory function that returns a skeleton to use for every new connection.
     # Return a skeleton bound to a new server object for every new connection.
+    sobjects: dict[AddressType, BookingServerImpl] = dict()
+    sobject_set = set()
+
     def skel_fac(addr: AddressType) -> Skeleton:
         # Create the server object.
-        so = BookingServerImpl(table)
+        so = BookingServerImpl(table, sobject_set)
+        sobjects[addr] = so
         # Bind the skeleton to the server object.
         so_skel = skel(so)
         logger.info(f"server: new connection from {addr}")
@@ -110,6 +114,8 @@ async def main(args: Sequence[str]) -> int:
 
     # Function that accepts a skeleton and an address on disconnection.
     def disconnect_callback(addr: AddressType):
+        sobjects[addr].handle_disconnect()
+        del sobjects[addr]
         logger.info(f"server: client {addr} disconnected")
 
     logger.info(f"server: listening at {args.laddr}:{args.lport}")
