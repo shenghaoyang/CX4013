@@ -905,7 +905,7 @@ class RPCClient(DatagramProtocol):
             return
 
         if self._pre_receive is not None:
-            data = self._pre_send(data)
+            data = self._pre_receive(data)
             if data is None:
                 return
 
