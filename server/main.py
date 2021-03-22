@@ -85,7 +85,7 @@ async def main(args: Sequence[str]) -> int:
     if (f := args.reinit_facilities) is not None:
         logger.info("db: reinitializing booking database")
         try:
-            names = set(f.read().split("\n"))
+            names = set(f for f in f.read().split("\n") if len(f) and not f.isspace())
         finally:
             f.close()
 
@@ -105,7 +105,7 @@ async def main(args: Sequence[str]) -> int:
 
     def skel_fac(addr: AddressType) -> Skeleton:
         # Create the server object.
-        so = BookingServerImpl(table, sobject_set)
+        so = BookingServerImpl(table, addr, sobject_set)
         sobjects[addr] = so
         # Bind the skeleton to the server object.
         so_skel = skel(so)
@@ -131,7 +131,7 @@ async def main(args: Sequence[str]) -> int:
         args.itimeout,
         args.etimeout,
     )
-    # Sleep for one hour and serve the remote object.
+    # Server for one hour.
     await asyncio.sleep(3600)
     s.stop()
 

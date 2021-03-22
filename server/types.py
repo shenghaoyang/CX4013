@@ -5,9 +5,9 @@ Data types used by the booking server.
 """
 
 
-import ipaddress
 from datetime import datetime, timedelta
-from server.bookingtable import DateTimeRange, START_DATE
+from typing import cast
+
 from serialization.derived import (
     create_struct_type,
     create_enum_type,
@@ -15,9 +15,8 @@ from serialization.derived import (
     create_union_type,
     String,
 )
-from typing import cast
-from serialization.numeric import u8, u32
-
+from serialization.numeric import u8
+from server.bookingtable import DateTimeRange, START_DATE
 
 # Contains an array of Strings.
 ArrayString = create_array_type("String", String)
@@ -53,8 +52,15 @@ Time = create_struct_type(
 # Encodes a half-open time range, [start, end).
 TimeRange = create_struct_type("TimeRange", (("start", Time), ("end", Time)))
 
-ArrayTimeRange = create_array_type("TimeRange", TimeRange)
+# Encodes booking information.
+Booking = create_struct_type("Booking", (("trange", TimeRange), ("facility", String)))
 
+# Encodes booking information or an error string.
+BookingOrError = create_union_type(
+    "BookingOrError", (("booking", Booking), ("error", String))
+)
+
+ArrayTimeRange = create_array_type("TimeRange", TimeRange)
 
 # Encodes a time range, or an error string.
 ArrayTimeRangeOrError = create_union_type(
@@ -63,40 +69,6 @@ ArrayTimeRangeOrError = create_union_type(
 
 # Encodes a booking ID, or an error string.
 IDOrError = create_union_type("IDOrError", (("id", String), ("error", String)))
-
-# Encodes an IPv4 address and a port number.
-IPv4AddressPort = create_struct_type(
-    "IPv4AddressPort", (("address", u32), ("port", u32))
-)
-
-
-def rpc_ipp_as_ipp(rpc_ipp: IPv4AddressPort) -> tuple[str, int]:
-    """
-    Represent a RPC ``IPv4AddressPort`` value as a tuple containing
-    ``(<IPv4 address, dotted quad>, <Port number>)``.
-
-    :param rpc_ipp: ``IPv4AddressPort`` value to use.
-    """
-    return ipaddress.IPv4Address(int(cast(u32, rpc_ipp["address"]))).compressed, int(
-        cast(u32, rpc_ipp["port"])
-    )
-
-
-def ipp_as_rpc_ipp(ipp: tuple[str, int]) -> IPv4AddressPort:
-    """
-    Represent a tuple containing an IPv4 address and a port number
-    as an RPC ``IPv4AddressPort`` object.
-
-    :param ipp: tuple to use.
-    """
-    return IPv4AddressPort(
-        address=u32(
-            int.from_bytes(
-                ipaddress.ip_address(ipp[0]).packed, byteorder="big", signed=False
-            )
-        ),
-        port=u32(ipp[1]),
-    )
 
 
 def rpc_td_as_td(rpc_td: TimeDelta) -> timedelta:

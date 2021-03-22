@@ -17,24 +17,24 @@ from server.types import (
     ArrayString,
     ArrayDayOfWeek,
     ArrayTimeRangeOrError,
+    Booking,
+    BookingOrError,
     TimeRange,
     IDOrError,
     TimeDelta,
-    IPv4AddressPort,
     DayOfWeek,
     ArrayTimeRange,
     dtrange_as_rpc_tr,
     rpc_tr_as_dtrange,
     rpc_td_as_td,
-    rpc_ipp_as_ipp,
 )
-from client.bookingclient import BookingNotificationServerProxy, Action
+from client.notificationserver import BookingNotificationServerProxy, Action
 from serialization.derived import String
 from serialization.wellknown import VoidOrError
 from serialization.numeric import u32, u64
 from rpc.common import RemoteInterface, remotemethod
 from rpc.proxy import generate_proxy
-from rpc.protocol import RPCClient
+from rpc.protocol import RPCClient, AddressType
 from rpc.helpers import create_and_connect_client
 
 
@@ -84,6 +84,15 @@ class BookingServer(RemoteInterface):
         """
 
     @remotemethod
+    async def lookup(self, bid: String) -> BookingOrError:
+        """
+        Look up information about an existing booking.
+
+        :param bid: booking ID.
+        :return: booking information or an error string.
+        """
+
+    @remotemethod
     async def facilities(self) -> ArrayString:
         """
         Obtains the facilities available for booking.
@@ -92,14 +101,24 @@ class BookingServer(RemoteInterface):
         """
 
     @remotemethod
+    async def swap(self, b1: String, b2: String) -> VoidOrError:
+        """
+        Swaps two bookings for the same facility.
+
+        :param b1:
+        :param b2:
+        :return:
+        """
+
+    @remotemethod
     async def register_notification(
-        self, to: IPv4AddressPort, key: u64, facility: String, seconds: u32
+        self, port: u32, key: u64, facility: String, seconds: u32
     ) -> VoidOrError:
         """
         Register for notifications regarding bookings made on a particular
         facility.
 
-        :param to: server to send notifications to.
+        :param port: port to send notifications to.
             A new connection will be made for each registration.
         :param key: key that will be provided with each notification.
         :param facility: facility to watch.
@@ -127,14 +146,18 @@ class NotificationServer:
 
 
 class BookingServerImpl(BookingServer):
-    def __init__(self, bt: Table, shared_with: set["BookingServerImpl"]):
+    def __init__(
+        self, bt: Table, caddr: AddressType, shared_with: set["BookingServerImpl"]
+    ):
         """
         Create a new booking server.
 
         :param bt: booking table to refer to.
+        :param caddr: address of client.
         :param shared_with: booking servers sharing access to the same table.
         """
         self._bt = bt
+        self._caddr = caddr
         self._shared_with = shared_with
         self._notification_servers: set[NotificationServer] = set()
         # todo lock database against concurrent modification.
@@ -328,20 +351,19 @@ class BookingServerImpl(BookingServer):
 
     @remotemethod
     async def register_notification(
-        self, to: IPv4AddressPort, key: u64, facility: String, seconds: u32
+        self, port: u32, key: u64, facility: String, seconds: u32
     ) -> VoidOrError:
-        try:
-            ipp = rpc_ipp_as_ipp(to)
-        except ValueError:
-            return VoidOrError("error", String("invalid notification server address"))
+        if port.value > 0xFFFF:
+            return VoidOrError("error", String("invalid port number"))
 
         facility = str(facility)
         if facility not in self._bt.facilities:
             return VoidOrError("error", String(f"facility {facility} does not exist"))
 
         try:
+            saddr = (self._caddr[0], port.value)
             c, p = await asyncio.wait_for(
-                create_and_connect_client(ipp, BookingNotificationServerProxy), 10
+                create_and_connect_client(saddr, BookingNotificationServerProxy), 10
             )
         except asyncio.TimeoutError:
             return VoidOrError("error", String("timeout while connecting to server"))
@@ -350,6 +372,8 @@ class BookingServerImpl(BookingServer):
         c.timeout = 0
         c.retries = 0
         key = int(key)
+        # Create task to expire the connection to the notification server after the
+        # specified monitoring interval.
         tsk = asyncio.create_task(asyncio.sleep(int(seconds)))
         ns = NotificationServer(client=c, proxy=p, facility=facility, key=key, task=tsk)
 
@@ -360,6 +384,39 @@ class BookingServerImpl(BookingServer):
             self._notification_servers.remove(ns)
 
         tsk.add_done_callback(callback)
+
+        return VoidOrError("void")
+
+    @remotemethod
+    async def lookup(self, bid: String) -> BookingOrError:
+        try:
+            facility, fbid = self._split_and_validate_bid(bid.value)
+        except ValueError as e:
+            return BookingOrError("error", String(e.args[0]))
+
+        trange = self._bt.lookup(facility, fbid)
+
+        return BookingOrError(
+            "booking",
+            Booking(
+                trange=dtrange_as_rpc_tr(trange.as_dtrange()), facility=String(facility)
+            ),
+        )
+
+    @remotemethod
+    async def swap(self, b1: String, b2: String) -> VoidOrError:
+        try:
+            f1, fbid1 = self._split_and_validate_bid(b1.value)
+            f2, fbid2 = self._split_and_validate_bid(b2.value)
+        except ValueError as e:
+            return VoidOrError("error", String(e.args[0]))
+
+        if f1 != f2:
+            return VoidOrError(
+                "error", String("bookings are not for the same facility")
+            )
+
+        self._bt.swap(f1, (fbid1, fbid2))
 
         return VoidOrError("void")
 
@@ -392,9 +449,13 @@ class BookingServerImpl(BookingServer):
         if tasks:
             await asyncio.wait(tasks)
 
-        # Disconnect notification servers that we failed to contact.
+        # Disconnect notification servers that can't be contacted.
         for task, ns in tasks.items():
-            if task.exception() is not None:
+            # Ignore invocation timeouts because notifications are best-effort only.
+            # The connection will eventually be closed due to the inactivity timeouts.
+            if (task.exception() is not None) and (
+                not isinstance(task.exception(), asyncio.TimeoutError)
+            ):
                 ns.task.cancel()
 
     def handle_disconnect(self):
