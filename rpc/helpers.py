@@ -7,7 +7,7 @@ Convenience functions for creating RPC servers and clients.
 
 import asyncio
 import socket
-from typing import Callable, cast
+from typing import Callable, cast, Optional
 from rpc.proxy import Proxy
 from rpc.skeleton import Skeleton
 from rpc.protocol import AddressType, RPCClient, RPCServer
@@ -38,10 +38,14 @@ async def create_server(
     loop = asyncio.get_running_loop()
 
     def pf():
-        return RPCServer(skel_factory, disconnect_callback, inactivity_timeout, result_cache_timeout)
+        return RPCServer(
+            skel_factory, disconnect_callback, inactivity_timeout, result_cache_timeout
+        )
 
     t, s = await loop.create_datagram_endpoint(
-        local_addr=laddr, family=family, protocol_factory=pf,
+        local_addr=laddr,
+        family=family,
+        protocol_factory=pf,
     )
     s = cast(RPCServer, s)
 
@@ -51,6 +55,9 @@ async def create_server(
 async def create_and_connect_client(
     raddr: AddressType,
     proxy_factory: Callable[[RPCClient], Proxy],
+    inactivity_timeout: int = 300,
+    pre_receive: Callable[[bytes], Optional[bytes]] = None,
+    pre_send: Callable[[bytes], Optional[bytes]] = None,
     family=socket.AF_INET,
 ) -> tuple[RPCClient, Proxy]:
     """
@@ -58,13 +65,22 @@ async def create_and_connect_client(
 
     :param raddr: address of the RPC server.
     :param proxy_factory: proxy factory function.
+    :param inactivity_timeout: amount of time (in seconds) without receiving a server reply
+        before the client disconnects.
+    :param pre_receive: pre-receive hook used to drop / alter received packets.
+    :param pre_send: pre-send hook used to drop / alter sent packets.
     :param family: client address family.
 
     :return: Proxy to RPC object.
     """
 
     def cf():
-        return RPCClient(peer_adr=raddr)
+        return RPCClient(
+            peer_adr=raddr,
+            inactivity_timeout=inactivity_timeout,
+            pre_receive=pre_receive,
+            pre_send=pre_send,
+        )
 
     loop = asyncio.get_running_loop()
     _, c = await loop.create_datagram_endpoint(
