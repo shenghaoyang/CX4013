@@ -93,6 +93,9 @@ class DateTimeRange:
     start: datetime.datetime
     end: datetime.datetime
 
+    def __str__(self) -> str:
+        return f"{self.start_str} to {self.end_str}"
+
     def __post_init__(self):
         self._validate()
 
@@ -114,6 +117,20 @@ class DateTimeRange:
             or (not (self.start < self.end))
         ):
             raise ValueError("invalid")
+
+    @property
+    def start_str(self) -> str:
+        """
+        Obtain a string representing the start time.
+        """
+        return self.start.strftime("%H:%M %A")
+
+    @property
+    def end_str(self) -> str:
+        """
+        Obtain a string representing the end time.
+        """
+        return self.end.strftime("%H:%M %A")
 
     def as_trange(self) -> TimeRange:
         """
@@ -177,8 +194,8 @@ class Table:
                 conn.execute(
                     f"""CREATE TABLE f{i}(
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    start INTEGER UNIQUE NOT NULL,
-                    end INTEGER UNIQUE NOT NULL)"""
+                    start INTEGER UNIQUE,
+                    end INTEGER UNIQUE)"""
                 )
 
         conn.close()
@@ -300,7 +317,9 @@ class Table:
 
             vals = cur.fetchone()
             if vals is None:
-                raise ValueError(f"booking with id {bid} not found for facility {fid}")
+                raise ValueError(
+                    f"booking with id {bid} not found for facility {facility}"
+                )
 
             return TimeRange(*vals)
 
@@ -327,6 +346,39 @@ class Table:
             )
 
             return res.lastrowid
+
+    def swap(self, facility: str, bids: tuple[int, int]):
+        """
+        Swap the time ranges for two bookings to the same facility.
+
+        :param facility: facility name.
+        :param bids: ids to swap time ranges for.
+        :raises ValueError: if booking ID does not exist.
+        :raises ValueError: if facility is nonexistent.
+        """
+        self._ensure_facility_exists(facility)
+        ranges = tuple(self.lookup(facility, bid) for bid in bids)
+
+        fid = self._facilities[facility]
+        with self._conn:
+            self._conn.execute(
+                f"""UPDATE f{fid}
+                    SET start = NULL, end = NULL
+                    WHERE id = ?""",
+                (bids[1],),
+            )
+            self._conn.execute(
+                f"""UPDATE f{fid}
+                    SET start = ?, end = ?
+                    WHERE id = ?""",
+                (ranges[1].start, ranges[1].end, bids[0]),
+            )
+            self._conn.execute(
+                f"""UPDATE f{fid}
+                    SET start = ?, end = ?
+                    WHERE id = ?""",
+                (ranges[0].start, ranges[0].end, bids[1]),
+            )
 
     def modify(self, facility: str, bid: int, trange: TimeRange):
         """
