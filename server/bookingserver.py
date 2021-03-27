@@ -13,7 +13,7 @@ from typing import cast
 from dataclasses import dataclass
 from collections.abc import Sequence
 from server.bookingtable import Table, DateTimeRange, START_DATE
-from server.types import (
+from server.apptypes import (
     ArrayString,
     ArrayDayOfWeek,
     ArrayTimeRangeOrError,

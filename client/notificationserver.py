@@ -10,7 +10,7 @@ from rpc.proxy import generate_proxy
 from serialization.derived import create_enum_type
 from serialization.numeric import u64
 from serialization.wellknown import Void
-from server.types import ArrayTimeRange, String, rpc_tr_as_dtrange
+from server.apptypes import ArrayTimeRange, String, rpc_tr_as_dtrange
 
 Action = create_enum_type("Action", ("CREATE", "RELEASE", "MODIFY"))
 

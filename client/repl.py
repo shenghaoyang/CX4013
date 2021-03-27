@@ -23,7 +23,7 @@ from serialization.derived import String
 from serialization.numeric import u8, u32, u64
 from server.bookingserver import BookingServerProxy
 from server.bookingtable import START_DATE
-from server.types import (
+from server.apptypes import (
     DayOfWeek,
     ArrayDayOfWeek,
     rpc_tr_as_dtrange,
