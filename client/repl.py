@@ -528,7 +528,7 @@ class Repl:
 
     async def set_server_client_drop_probability(self):
         print(
-            HTML(f"Current probability is <ansired>{self._droppers[0].prob}</ansired>.")
+            HTML(f"Current probability is <ansired>{self._droppers[1].prob}</ansired>.")
         )
         self._droppers[1].prob = await self._prompt_probability()
 
