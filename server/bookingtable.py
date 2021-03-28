@@ -337,7 +337,7 @@ class Table:
 
         # todo do better locking
         if not self.check_avail(facility, trange):
-            raise ValueError(f"facility {facility} not available during {trange}")
+            raise ValueError(f"facility {facility} not available during {trange.as_dtrange()}")
 
         with self._conn:
             res = self._conn.execute(
@@ -394,7 +394,7 @@ class Table:
 
         # todo do better locking
         if not self.check_avail_excl(facility, bid, trange):
-            raise ValueError(f"facility {facility} not available during {trange}")
+            raise ValueError(f"facility {facility} not available during {trange.as_dtrange()}")
 
         with self._conn:
             self._conn.execute(
