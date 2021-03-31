@@ -6,6 +6,10 @@ course in NTU.
 
 The protocol, being a "toy", does have many limitations and vulnerabilities.
 
+The implementation uses Python's `async` functionality to serve multiple clients
+concurrently, and also allows an individual client to dispatch multiple calls
+concurrently.
+
 ## Quickstart
 
 This project uses Poetry for dependency management, and **requires** Python 3.9.1+.
