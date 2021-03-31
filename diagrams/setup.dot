@@ -1,0 +1,10 @@
+digraph G {
+    node [shape="box", fontname="Liberation Serif"]
+    
+    client [shape="record", label="<bc>Booking Client|{Callback Server|<cs>0.0.0.0:5001}"]
+    server [shape="record", label="{<bs>0.0.0.0:5000|Booking Server}|<cc>Callback Client", 
+            fillcolor=gray, style=filled]
+
+    "client":bc -> "server":bs
+    "server":cc -> "client":cs
+}

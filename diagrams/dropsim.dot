@@ -1,0 +1,19 @@
+digraph G {
+    node [shape="box", font="Liberation Serif"]
+
+    kernel [style="filled", color="gray", label="kernel"]
+    rhook [shape="ellipse", label="pre-receive hook"]
+    shook [shape="ellipse", label="post-send hook"]
+    sfunction [label="client's packet send function"]
+    rhandler [label="client's received packet handler"]
+    drop [style="filled", label="dropped", fillcolor="red", color="invis"]
+
+    sfunction -> shook [label="sent packet"]
+    kernel -> rhook [label="received packet"]
+
+    rhook -> rhandler [label="forwarded"]
+    rhook -> drop [style="dotted", label="P"]
+
+    shook -> kernel [label="forwarded"]
+    shook -> drop [style="dotted", label="Q"]
+}

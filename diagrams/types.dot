@@ -1,0 +1,19 @@
+digraph G {
+    node [shape="box", font="Times New Roman"]
+    
+    derived [label="Derived", shape="ellipse", color="gray"]
+    numeric [label="Numeric", shape="ellipse", color="gray"]
+    
+    arrays [label="Arrays"]
+    enums [label="Enums"]
+    structs [label="Structs"]
+    unions [label="Unions"]
+    
+
+    
+    integers [label="Integers"]
+    strings [label="Strings"]
+    
+    numeric -> integers
+    derived -> {strings, arrays, enums, structs, unions}
+}
