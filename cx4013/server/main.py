@@ -132,8 +132,7 @@ async def main(args: Sequence[str]) -> int:
         parsed.etimeout,
     )
     # Serve continuously.
-    loop = asyncio.get_running_loop()
-    loop.run_forever()
+    await asyncio.sleep(sys.float_info.max)
     s.stop()
 
     return 0
