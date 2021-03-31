@@ -1,8 +1,8 @@
 [tool.poetry]
-name = "cal_compiler"
+name = "cx4013"
 version = "0.1.0"
-description = ""
-authors = ["Your Name <you@example.com>"]
+description = "CX4013 Lab Project"
+authors = ["Celine Wong Si Lin", "Ang Zhan Phung", "Shenghao Yang <me@shenghaoyang.info>"]
 license = "MIT"
 
 [tool.poetry.dependencies]
@@ -20,3 +20,7 @@ tox = "^3.21.4"
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+cx4013_client = 'cx4013.client.main:main_wrapper'
+cx4013_server = 'cx4013.server.main:main_wrapper'

@@ -6,10 +6,10 @@ RMI / RPC-level packet definitions.
 
 
 import random
-from rpc import exceptions
+from cx4013.rpc import exceptions
 from typing import Final, Type, Optional
 from enum import Flag, Enum, auto
-from serialization.numeric import u32
+from cx4013.serialization.numeric import u32
 
 # Packet structure
 # Byte 0:3 Magic number 0x04000103

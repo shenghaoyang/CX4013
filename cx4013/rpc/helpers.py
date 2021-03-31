@@ -8,9 +8,9 @@ Convenience functions for creating RPC servers and clients.
 import asyncio
 import socket
 from typing import Callable, cast, Optional
-from rpc.proxy import Proxy
-from rpc.skeleton import Skeleton
-from rpc.protocol import AddressType, RPCClient, RPCServer
+from cx4013.rpc.proxy import Proxy
+from cx4013.rpc.skeleton import Skeleton
+from cx4013.rpc.protocol import AddressType, RPCClient, RPCServer
 
 
 async def create_server(

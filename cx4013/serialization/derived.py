@@ -5,10 +5,20 @@ Derived types for the CAL RPC protocol.
 """
 
 
-from serialization.common import Serializable
-from serialization.numeric import u64
+from cx4013.serialization.common import Serializable
+from cx4013.serialization.numeric import u64
 from collections.abc import MutableSequence, Sequence
-from typing import Tuple, Type, TypeVar, Union, Iterable, Optional, cast, Mapping
+from typing import (
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+    Iterable,
+    Optional,
+    cast,
+    Mapping,
+    overload,
+)
 from enum import Enum
 
 T = TypeVar("T")
@@ -72,7 +82,7 @@ class Struct(Serializable):
 
 
 def create_struct_type(
-    name: str, elements: Sequence[Tuple[str, Type[Serializable]], ...] = tuple()
+    name: str, elements: Sequence[tuple[str, Type[Serializable]]] = tuple()
 ) -> Type[Struct]:
     """
     Create a new type representing a CAL RPC structure.
@@ -86,7 +96,7 @@ class Array(Serializable, MutableSequence[Serializable]):
     Abstract base class representing a CAL RPC array.
     """
 
-    TYPE: Type[Serializable] = Serializable
+    TYPE: Type[Serializable] = u64
     """  
     Base class representing a CAL RPC Variable-length array.
     """
@@ -101,10 +111,16 @@ class Array(Serializable, MutableSequence[Serializable]):
     def __len__(self) -> int:
         return len(self._values)
 
-    def __getitem__(
-        self, i: Union[int, slice]
-    ) -> Union[MutableSequence[Serializable], Serializable]:
-        return self._values[i]
+    @overload
+    def __getitem__(self, idx: int) -> Serializable:
+        ...
+
+    @overload
+    def __getitem__(self, s: slice) -> MutableSequence[Serializable]:
+        ...
+
+    def __getitem__(self, item):
+        return self._values[item]
 
     def __setitem__(
         self, i: Union[int, slice], o: Union[Serializable, Iterable[Serializable]]
@@ -120,7 +136,7 @@ class Array(Serializable, MutableSequence[Serializable]):
     def __delitem__(self, i: Union[int, slice]):
         del self._values[i]
 
-    def _type_check(self, o: T) -> T:
+    def _type_check(self, o: T) -> Serializable:
         if not isinstance(o, self.TYPE):
             raise TypeError(f"{o!r} is of wrong type for array")
 
@@ -235,7 +251,7 @@ class Union_(Serializable):
 
 
 def create_union_type(
-    name: str, elements: Sequence[Tuple[str, Type[Serializable]], ...] = tuple()
+    name: str, elements: Sequence[tuple[str, Type[Serializable]]] = tuple()
 ) -> Type[Union_]:
     """
     Create a new type representing a CAL RPC Union.

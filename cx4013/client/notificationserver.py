@@ -5,12 +5,12 @@ Implementation of the booking notification service.
 """
 
 
-from rpc.common import RemoteInterface, remotemethod
-from rpc.proxy import generate_proxy
-from serialization.derived import create_enum_type
-from serialization.numeric import u64
-from serialization.wellknown import Void
-from server.apptypes import ArrayTimeRange, String, rpc_tr_as_dtrange
+from cx4013.rpc.common import RemoteInterface, remotemethod
+from cx4013.rpc.proxy import generate_proxy
+from cx4013.serialization.derived import create_enum_type
+from cx4013.serialization.numeric import u64
+from cx4013.serialization.wellknown import Void
+from cx4013.server.apptypes import ArrayTimeRange, String, rpc_tr_as_dtrange
 
 Action = create_enum_type("Action", ("CREATE", "RELEASE", "MODIFY"))
 

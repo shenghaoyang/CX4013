@@ -7,7 +7,7 @@ Client-side pre-receive and pre-send hooks used to simulate packet loss.
 
 import random
 from typing import Optional
-from rpc.packet import PacketFlags, PacketHeader
+from cx4013.rpc.packet import PacketFlags, PacketHeader
 
 
 class RandomRequestReplyDropper:

@@ -15,15 +15,15 @@ from prompt_toolkit.shortcuts import clear
 from prompt_toolkit.validation import Validator, ValidationError
 from tabulate import tabulate
 
-from rpc.protocol import RPCClient
-from rpc.packet import InvocationSemantics
-from client.notificationserver import BookingNotificationServerImpl
-from client.hooks import RandomRequestReplyDropper
-from serialization.derived import String
-from serialization.numeric import u8, u32, u64
-from server.bookingserver import BookingServerProxy
-from server.bookingtable import START_DATE
-from server.apptypes import (
+from cx4013.rpc.protocol import RPCClient
+from cx4013.rpc.packet import InvocationSemantics
+from cx4013.client.notificationserver import BookingNotificationServerImpl
+from cx4013.client.hooks import RandomRequestReplyDropper
+from cx4013.serialization.derived import String
+from cx4013.serialization.numeric import u8, u32, u64
+from cx4013.server.bookingserver import BookingServerProxy
+from cx4013.server.bookingtable import START_DATE
+from cx4013.server.apptypes import (
     DayOfWeek,
     ArrayDayOfWeek,
     rpc_tr_as_dtrange,
@@ -193,7 +193,7 @@ class Repl:
                 components = s.split("-")
                 if len(components) != 2:
                     raise ValidationError(
-                        0, f"expecting two components separated by a dash (-)"
+                        0, "expecting two components separated by a dash (-)"
                     )
 
         return await self._session.prompt_async(
@@ -228,23 +228,23 @@ class Repl:
                 s = document.text
                 components = s.split(":")
                 if len(components) != 2:
-                    raise ValidationError(0, f"expecting (+/-)HH:MM")
+                    raise ValidationError(0, "expecting (+/-)HH:MM")
 
                 c1, c2 = components
                 pc1, pc2 = s.find(c1), s.rfind(c2)
                 if c1[0] not in ("+", "-"):
                     raise ValidationError(
-                        0, f"expecting +/- before HH:MM for shift direction"
+                        0, "expecting +/- before HH:MM for shift direction"
                     )
 
                 if not c1[1:].isnumeric():
                     raise ValidationError(
-                        pc1, f"expecting hour shift component to be an integer"
+                        pc1, "expecting hour shift component to be an integer"
                     )
 
                 if not c2.isnumeric():
                     raise ValidationError(
-                        pc2, f"expecting minute shift component to be an integer"
+                        pc2, "expecting minute shift component to be an integer"
                     )
 
                 maxval = u8.max()
@@ -328,9 +328,9 @@ class Repl:
 
     async def book(self):
         name = await self._prompt_facility()
-        print(HTML(f"<u>Enter <b>start</b> time</u>:"))
+        print(HTML("<u>Enter <b>start</b> time</u>:"))
         start = await self._prompt_time()
-        print(HTML(f"<u>Enter <b>end</b> time</u>"))
+        print(HTML("<u>Enter <b>end</b> time</u>"))
         end = await self._prompt_time()
 
         rpc_tr = dtrange_as_rpc_tr(DateTimeRange(start, end))
@@ -370,9 +370,9 @@ class Repl:
         )
 
     async def swap(self):
-        print(HTML(f"<u>Enter <b>first</b> booking</u>:"))
+        print(HTML("<u>Enter <b>first</b> booking</u>:"))
         bid1 = await self._prompt_bid()
-        print(HTML(f"<u>Enter <b>second</b> booking</u>"))
+        print(HTML("<u>Enter <b>second</b> booking</u>"))
         bid2 = await self._prompt_bid()
 
         res = await self._proxy.swap(String(bid1), String(bid2))

@@ -8,7 +8,7 @@ Common RPC definitions.
 import inspect
 from typing import Callable, Any, Final
 from typing_extensions import Protocol
-from serialization.common import Serializable
+from cx4013.serialization.common import Serializable
 from abc import ABC
 from collections import Awaitable
 
@@ -37,7 +37,7 @@ def remotemethod(func: Callable) -> Callable:
 
         if name.startswith("_"):
             # todo: maybe check during the decorator?
-            raise ValueError(f"remote method cannot start with _")
+            raise ValueError("remote method cannot start with _")
 
         if parameter.kind != inspect.Parameter.POSITIONAL_OR_KEYWORD:
             raise TypeError(

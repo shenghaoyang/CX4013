@@ -12,8 +12,8 @@ from datetime import timedelta
 from typing import cast
 from dataclasses import dataclass
 from collections.abc import Sequence
-from server.bookingtable import Table, DateTimeRange, START_DATE
-from server.apptypes import (
+from cx4013.server.bookingtable import Table, DateTimeRange, START_DATE
+from cx4013.server.apptypes import (
     ArrayString,
     ArrayDayOfWeek,
     ArrayTimeRangeOrError,
@@ -28,14 +28,14 @@ from server.apptypes import (
     rpc_tr_as_dtrange,
     rpc_td_as_td,
 )
-from client.notificationserver import BookingNotificationServerProxy, Action
-from serialization.derived import String
-from serialization.wellknown import VoidOrError
-from serialization.numeric import u32, u64
-from rpc.common import RemoteInterface, remotemethod
-from rpc.proxy import generate_proxy
-from rpc.protocol import RPCClient, AddressType
-from rpc.helpers import create_and_connect_client
+from cx4013.client.notificationserver import BookingNotificationServerProxy, Action
+from cx4013.serialization.derived import String
+from cx4013.serialization.wellknown import VoidOrError
+from cx4013.serialization.numeric import u32, u64
+from cx4013.rpc.common import RemoteInterface, remotemethod
+from cx4013.rpc.proxy import Proxy, generate_proxy
+from cx4013.rpc.protocol import RPCClient, AddressType
+from cx4013.rpc.helpers import create_and_connect_client
 
 
 class BookingServer(RemoteInterface):
@@ -180,20 +180,20 @@ class BookingServerImpl(BookingServer):
         """
         split = bid.split("-")
         if len(split) != 2:
-            raise ValueError(f"expected single '-' in id")
+            raise ValueError("expected single '-' in id")
 
         try:
             facility = a2b_base64(split[0]).decode("utf-8")
-            bid = int(split[1])
+            bid_int = int(split[1])
         except ValueError:
             raise ValueError("ID malformed")
 
         try:
-            self._bt.lookup(facility, bid)
+            self._bt.lookup(facility, bid_int)
         except KeyError:
             raise
 
-        return facility, bid
+        return facility, bid_int
 
     @remotemethod
     async def query_availability(
@@ -204,8 +204,10 @@ class BookingServerImpl(BookingServer):
         if not len(days):
             return ArrayTimeRangeOrError("error", String("no days requested"))
 
-        days: list[DayOfWeek.VALUES] = list(set(cast(DayOfWeek, d).value for d in days))
-        days.sort(key=lambda v: v.value)
+        days_list: list[DayOfWeek.VALUES] = list(
+            set(cast(DayOfWeek, d).value for d in days)
+        )
+        days_list.sort(key=lambda v: v.value)
 
         # Already sorted in ascending order.
         try:
@@ -216,7 +218,7 @@ class BookingServerImpl(BookingServer):
             return ArrayTimeRangeOrError("error", String(e.args[0]))
 
         out = ArrayTimeRange()
-        for d in days:
+        for d in days_list:
             start = START_DATE + timedelta(days=d.value)
             end = start + timedelta(days=1)
 
@@ -263,7 +265,7 @@ class BookingServerImpl(BookingServer):
         try:
             dtrange = rpc_tr_as_dtrange(trange)
         except ValueError:
-            return IDOrError("error", String(f"invalid time range"))
+            return IDOrError("error", String("invalid time range"))
 
         try:
             fbid = self._bt.book(facility, dtrange.as_trange())
@@ -299,14 +301,14 @@ class BookingServerImpl(BookingServer):
             new_dtrange = DateTimeRange(old_dtrange.start + td, old_dtrange.end + td)
         except ValueError:
             return IDOrError(
-                "error", String(f"booking alteration causes booking to go out-of-week")
+                "error", String("booking alteration causes booking to go out-of-week")
             )
 
         try:
             self._bt.modify(facility, fbid, new_dtrange.as_trange())
         except ValueError:
             return IDOrError(
-                "error", String(f"altered booking conflicts with existing booking")
+                "error", String("altered booking conflicts with existing booking")
             )
 
         tasks = [
@@ -374,7 +376,7 @@ class BookingServerImpl(BookingServer):
         key = int(key)
         # Create task to expire the connection to the notification server after the
         # specified monitoring interval.
-        tsk = asyncio.create_task(asyncio.sleep(int(seconds)))
+        tsk: asyncio.Task = asyncio.create_task(asyncio.sleep(int(seconds)))
         ns = NotificationServer(client=c, proxy=p, facility=facility, key=key, task=tsk)
 
         self._notification_servers.add(ns)
@@ -465,4 +467,4 @@ class BookingServerImpl(BookingServer):
             s.task.cancel()
 
 
-BookingServerProxy = generate_proxy(BookingServer)
+BookingServerProxy: Proxy = generate_proxy(BookingServer)

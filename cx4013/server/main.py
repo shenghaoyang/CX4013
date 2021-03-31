@@ -29,12 +29,12 @@ import logging
 import asyncio
 import argparse
 from pathlib import Path
-from rpc.common import DEFAULT_PORT
-from rpc.protocol import AddressType
-from rpc.helpers import create_server
-from rpc.skeleton import generate_skeleton, Skeleton
-from server.bookingserver import BookingServerImpl
-from server.bookingtable import Table
+from cx4013.rpc.common import DEFAULT_PORT
+from cx4013.rpc.protocol import AddressType
+from cx4013.rpc.helpers import create_server
+from cx4013.rpc.skeleton import generate_skeleton, Skeleton
+from cx4013.server.bookingserver import BookingServerImpl
+from cx4013.server.bookingtable import Table
 from collections.abc import Sequence
 
 
@@ -72,7 +72,7 @@ async def main(args: Sequence[str]) -> int:
 
     # Parse the arguments.
     try:
-        args = parser.parse_args(args[1:])
+        parsed = parser.parse_args(args[1:])
     except argparse.ArgumentError:
         return 1
 
@@ -82,7 +82,7 @@ async def main(args: Sequence[str]) -> int:
 
     # Load the bookings database.
     db = Path("bookings.sqlite")
-    if (f := args.reinit_facilities) is not None:
+    if (f := parsed.reinit_facilities) is not None:
         logger.info("db: reinitializing booking database")
         try:
             names = set(f for f in f.read().split("\n") if len(f) and not f.isspace())
@@ -101,7 +101,7 @@ async def main(args: Sequence[str]) -> int:
     # Factory function that returns a skeleton to use for every new connection.
     # Return a skeleton bound to a new server object for every new connection.
     sobjects: dict[AddressType, BookingServerImpl] = dict()
-    sobject_set = set()
+    sobject_set: set[BookingServerImpl] = set()
 
     def skel_fac(addr: AddressType) -> Skeleton:
         # Create the server object.
@@ -118,23 +118,30 @@ async def main(args: Sequence[str]) -> int:
         del sobjects[addr]
         logger.info(f"server: client {addr} disconnected")
 
-    logger.info(f"server: listening at {args.laddr}:{args.lport}")
+    logger.info(f"server: listening at {parsed.laddr}:{parsed.lport}")
     logger.info(
-        f"server: inactivity timeout: {args.itimeout}s, AMO entry timeout: {args.etimeout}s"
+        f"server: inactivity timeout: {parsed.itimeout}s, AMO entry timeout: {parsed.etimeout}s"
     )
 
     # Create the server and wait for it to be up.
     s = await create_server(
-        (args.laddr, args.lport),
+        (parsed.laddr, parsed.lport),
         skel_fac,
         disconnect_callback,
-        args.itimeout,
-        args.etimeout,
+        parsed.itimeout,
+        parsed.etimeout,
     )
-    # Server for one hour.
-    await asyncio.sleep(3600)
+    # Serve continuously.
+    loop = asyncio.get_running_loop()
+    loop.run_forever()
     s.stop()
+
+    return 0
+
+
+def main_wrapper():
+    exit(asyncio.run(main(sys.argv)))
 
 
 if __name__ == "__main__":
-    exit(asyncio.run(main(sys.argv)))
+    main_wrapper()

@@ -6,22 +6,26 @@ Tests for derived type serialization.
 
 
 import pytest
-from serialization.derived import (
+from cx4013.serialization.derived import (
+    Array,
+    Enum_,
+    Struct,
+    Union_,
     create_struct_type,
     create_array_type,
     create_union_type,
     create_enum_type,
     String,
 )
-from serialization.numeric import i64, u64
+from cx4013.serialization.numeric import i64, u64
 
 
-Point = create_struct_type("Point", (("x", i64), ("y", i64)))
-PointArray = create_array_type("Point", Point)
-PointOrPointArray = create_union_type(
+Point: Struct = create_struct_type("Point", (("x", i64), ("y", i64)))
+PointArray: Array = create_array_type("Point", Point)
+PointOrPointArray: Union_ = create_union_type(
     "PointOrPointArray", (("point", Point), ("point_array", PointArray))
 )
-Color = create_enum_type("Color", ("RED", "GREEN", "BLUE"))
+Color: Enum_ = create_enum_type("Color", ("RED", "GREEN", "BLUE"))
 
 
 @pytest.fixture

@@ -8,15 +8,15 @@ Data types used by the booking server.
 from datetime import datetime, timedelta
 from typing import cast
 
-from serialization.derived import (
+from cx4013.serialization.derived import (
     create_struct_type,
     create_enum_type,
     create_array_type,
     create_union_type,
     String,
 )
-from serialization.numeric import u8
-from server.bookingtable import DateTimeRange, START_DATE
+from cx4013.serialization.numeric import u8
+from cx4013.server.bookingtable import DateTimeRange, START_DATE
 
 # Contains an array of Strings.
 ArrayString = create_array_type("String", String)

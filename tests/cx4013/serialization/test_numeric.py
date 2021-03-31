@@ -5,7 +5,7 @@ Tests for numeric type serialization.
 """
 
 import pytest
-from serialization import numeric
+from cx4013.serialization import numeric
 
 
 class TestNumerics:

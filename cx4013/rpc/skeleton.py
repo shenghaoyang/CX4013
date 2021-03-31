@@ -6,13 +6,13 @@ RPC Skeleton generator.
 
 
 import inspect
-from rpc.exceptions import (
+from cx4013.rpc.exceptions import (
     ArgumentDeserializationError,
     InternalServerFailureError,
     MethodNotFoundError,
 )
-from rpc.common import RemoteMethod, RemoteInterface, is_remotemethod
-from serialization.common import Serializable
+from cx4013.rpc.common import RemoteMethod, RemoteInterface, is_remotemethod
+from cx4013.serialization.common import Serializable
 from typing import Type, cast, Union, Callable
 from collections import Awaitable
 

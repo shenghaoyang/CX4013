@@ -5,7 +5,7 @@ Well-known types that are not part of the core RPC types.
 """
 
 
-from serialization.derived import create_struct_type, create_union_type, String
+from cx4013.serialization.derived import create_struct_type, create_union_type, String
 from typing import Final
 
 

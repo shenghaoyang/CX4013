@@ -11,10 +11,10 @@ from typing import Type, Callable, cast
 
 from boltons.funcutils import FunctionBuilder
 
-from rpc.common import RemoteMethod, is_remotemethod, RemoteInterface
-from rpc.exceptions import ArgumentSerializationError, ReturnDeserializationError
-from rpc.protocol import RPCClient
-from serialization.common import Serializable
+from cx4013.rpc.common import RemoteMethod, is_remotemethod, RemoteInterface
+from cx4013.rpc.exceptions import ArgumentSerializationError, ReturnDeserializationError
+from cx4013.rpc.protocol import RPCClient
+from cx4013.serialization.common import Serializable
 
 
 class Proxy(ABC):

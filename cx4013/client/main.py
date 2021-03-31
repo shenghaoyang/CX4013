@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """
 main.py
 
@@ -13,14 +15,14 @@ from collections.abc import Sequence
 from prompt_toolkit import print_formatted_text as print, HTML
 from prompt_toolkit.shortcuts import clear
 
-from client.notificationserver import BookingNotificationServerImpl
-from client.repl import Repl
-from client.hooks import RandomRequestReplyDropper
-from rpc.common import DEFAULT_PORT
-from rpc.helpers import create_and_connect_client, create_server
-from rpc.protocol import AddressType
-from rpc.skeleton import generate_skeleton, Skeleton
-from server.bookingserver import BookingServerProxy
+from cx4013.client.notificationserver import BookingNotificationServerImpl
+from cx4013.client.repl import Repl
+from cx4013.client.hooks import RandomRequestReplyDropper
+from cx4013.rpc.common import DEFAULT_PORT
+from cx4013.rpc.helpers import create_and_connect_client, create_server
+from cx4013.rpc.protocol import AddressType
+from cx4013.rpc.skeleton import generate_skeleton, Skeleton
+from cx4013.server.bookingserver import BookingServerProxy
 
 
 async def main(args: Sequence[str]) -> int:
@@ -69,7 +71,7 @@ async def main(args: Sequence[str]) -> int:
         pass
 
     # Create notification server.
-    s = await create_server(
+    _ = await create_server(
         (args.caddr, args.cport),
         skel_fac,
         disconnect_callback,
@@ -101,5 +103,9 @@ async def main(args: Sequence[str]) -> int:
         c.close()
 
 
-if __name__ == "__main__":
+def main_wrapper():
     exit(asyncio.run(main(sys.argv)))
+
+
+if __name__ == "__main__":
+    main_wrapper()

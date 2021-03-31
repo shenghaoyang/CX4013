@@ -5,7 +5,7 @@ Numeric type support for the CAL RPC (Python) protocol compiler.
 """
 
 
-from serialization.common import Serializable
+from cx4013.serialization.common import Serializable
 from abc import abstractmethod
 
 
@@ -30,7 +30,7 @@ class Numeric(Serializable):
     @classmethod
     def deserialize(cls, data: bytes) -> "Numeric":
         if len(data) < cls().size:
-            raise ValueError(f"data too short")
+            raise ValueError("data too short")
         return cls(int.from_bytes(data[: cls().size], "little", signed=cls.signed()))
 
     @classmethod

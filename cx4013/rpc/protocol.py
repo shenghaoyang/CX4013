@@ -13,8 +13,8 @@ from collections.abc import MutableMapping, Coroutine, Mapping
 from functools import partial
 from typing import Optional, TypeVar, Hashable, Callable, Iterator, Union
 
-from rpc import exceptions
-from rpc.packet import (
+from cx4013.rpc import exceptions
+from cx4013.rpc.packet import (
     PacketHeader,
     PacketFlags,
     ExecutionStatus,
@@ -23,8 +23,8 @@ from rpc.packet import (
     TransactionID,
     estatus_to_exception,
 )
-from rpc.skeleton import Skeleton
-from serialization.numeric import u32
+from cx4013.rpc.skeleton import Skeleton
+from cx4013.serialization.numeric import u32
 
 # Signature of a pre-receive / pre-send hook.
 # Accepts packet to be sent / packet received and returns transformed packet, or
@@ -190,7 +190,7 @@ class RPCObjectServer:
 
     async def _call_amo(
         self, tid: int, ordinal: int, args: bytes
-    ) -> [Union[bytes, Exception], bool]:
+    ) -> tuple[Union[bytes, Exception], bool]:
         """
         Call a method on the skeleton with at-most-once invocation semantics.
 
@@ -960,7 +960,7 @@ class RPCClient(DatagramProtocol):
             Must be non-negative if not ``None``.
         """
         if (seconds is not None) and (seconds < 0):
-            raise ValueError(f"negative")
+            raise ValueError("negative")
 
         self._timeout = seconds
 
@@ -981,7 +981,7 @@ class RPCClient(DatagramProtocol):
         :param count: number of retries. Must be non-negative.
         """
         if count < 0:
-            raise ValueError(f"negative")
+            raise ValueError("negative")
 
         self._retries = count
 
