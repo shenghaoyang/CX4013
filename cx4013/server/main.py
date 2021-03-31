@@ -45,7 +45,9 @@ async def main(args: Sequence[str]) -> int:
     :param args: program arguments a-la sys.argv.
     """
     parser = argparse.ArgumentParser(
-        description="CALRPC server application.", exit_on_error=False
+        description="CALRPC server application.",
+        exit_on_error=False,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("DATABASE_PATH", help="path to the booking database")
     parser.add_argument("--laddr", help="IPv4 listen address", default="0.0.0.0")
@@ -60,7 +62,7 @@ async def main(args: Sequence[str]) -> int:
     )
     parser.add_argument(
         "--etimeout",
-        help="lifetime of an entry in the result cache",
+        help="lifetime of an entry in the result cache (seconds)",
         type=int,
         default=60,
     )
@@ -73,7 +75,8 @@ async def main(args: Sequence[str]) -> int:
     # Parse the arguments.
     try:
         parsed = parser.parse_args(args[1:])
-    except argparse.ArgumentError:
+    except argparse.ArgumentError as e:
+        print(e, file=sys.stderr)
         return 1
 
     logging.basicConfig()
@@ -95,10 +98,10 @@ async def main(args: Sequence[str]) -> int:
         table = Table(db)
         logger.info("db: loaded")
 
-    # Generate a skeleton for the server object.
+    # Generate the skeleton class for server objects.
     skel = generate_skeleton(BookingServerImpl)
 
-    # Factory function that returns a skeleton to use for every new connection.
+    # Factory function that returns a skeleton instance to use for every new connection.
     # Return a skeleton bound to a new server object for every new connection.
     sobjects: dict[AddressType, BookingServerImpl] = dict()
     sobject_set: set[BookingServerImpl] = set()

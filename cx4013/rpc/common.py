@@ -18,6 +18,10 @@ DEFAULT_PORT: Final = 5000
 
 
 class RemoteMethod(Protocol):
+    """
+    Protocol class used to define the signature of a remote method.
+    """
+
     def __call__(self, obj: Any, *args: Serializable) -> Awaitable[Serializable]:
         pass
 

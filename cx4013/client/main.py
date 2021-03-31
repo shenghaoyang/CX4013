@@ -32,7 +32,9 @@ async def main(args: Sequence[str]) -> int:
     :param args: program arguments a-la sys.argv.
     """
     parser = argparse.ArgumentParser(
-        description="CALRPC client application.", exit_on_error=False
+        description="CALRPC client application.",
+        exit_on_error=False,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("SERVER", help="IPv4 address of server")
     parser.add_argument(
@@ -40,7 +42,7 @@ async def main(args: Sequence[str]) -> int:
     )
     parser.add_argument(
         "--caddr",
-        help="IPv4 address used for listening to callbacks.",
+        help="IPv4 address used for listening to callbacks",
         default="0.0.0.0",
     )
     parser.add_argument(
@@ -56,7 +58,8 @@ async def main(args: Sequence[str]) -> int:
     # Parse the arguments.
     try:
         args = parser.parse_args(args[1:])
-    except argparse.ArgumentError:
+    except argparse.ArgumentError as e:
+        print(e, file=sys.stderr)
         return 1
 
     # Setup the notification server.

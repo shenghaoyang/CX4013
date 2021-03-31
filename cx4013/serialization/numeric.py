@@ -35,11 +35,17 @@ class Numeric(Serializable):
 
     @classmethod
     def bit_size(cls) -> int:
+        """
+        Obtain the bit-width of this integer.
+        """
         ist = cls()
         return ist.size * 8
 
     @classmethod
     def max(cls) -> int:
+        """
+        Obtain the maximum value this integer can take.
+        """
         if cls.signed():
             return 2 ** (cls.bit_size() - 1) - 1
         else:
@@ -47,6 +53,9 @@ class Numeric(Serializable):
 
     @classmethod
     def min(cls) -> int:
+        """
+        Obtain the minimum value this integer can take.
+        """
         if cls.signed():
             return -(2 ** (cls.bit_size() - 1))
         else:
@@ -55,6 +64,9 @@ class Numeric(Serializable):
     @staticmethod
     @abstractmethod
     def signed() -> bool:
+        """
+        Check whether this integral type is signed.
+        """
         pass
 
     def serialize(self) -> bytes:
@@ -62,10 +74,18 @@ class Numeric(Serializable):
 
     @property
     def value(self) -> int:
+        """
+        Obtain the value of this integer as a Python ``int``.
+        """
         return self._v
 
     @value.setter
     def value(self, val: int):
+        """
+        Set the value of this integer.
+
+        :raises OverflowError: on bounds check failure.
+        """
         saved = self.value
         try:
             self._v = val

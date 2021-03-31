@@ -146,6 +146,10 @@ class NotificationServer:
 
 
 class BookingServerImpl(BookingServer):
+    """
+    Concrete implementation of the booking server remote interface.
+    """
+
     def __init__(
         self, bt: Table, caddr: AddressType, shared_with: set["BookingServerImpl"]
     ):
