@@ -1,4 +1,4 @@
-# CX4013 lab
+# CX4013 Lab Project
 
 This project implements a remote facility booking system over a "toy" RPC protocol
 to fulfill the laboratory project requirement for the CX4013 Distributed Systems
@@ -19,6 +19,22 @@ This project uses Poetry for dependency management, and **requires** Python 3.9.
 ```console
 $ poetry install
 ```
+
+## Quickstart (without Poetry)
+
+The project can still run without Poetry.
+
+In that case, install the dependencies under the `[tool.poetry.dependencies]` section in
+`pyproject.toml`.
+
+However, due to less precise dependency version control (`pyproject.lock` is not used),
+errors may occur.
+
+After dependencies are installed, install the latest version of this project by
+downloading a wheel / source distribution from the release page on 
+[GitHub](https://github.com/shenghaoyang/CX4013/releases) and installing it using `pip`.
+
+This project is not published on PyPI.
 
 ## Starting the server
 
@@ -73,6 +89,7 @@ are _not_ supported.
 ```console
 $ cx4013_client 127.0.0.1
 ```
+3. Interact with the REPL presented by the client.
 
 Other command line options can be discovered by specifying `--help`.
 ```console
@@ -104,3 +121,18 @@ port using the `--caddr` and `--cport` options, e.g. `--cport 5002`.
 The same problem can occur for multiple server instances. In that case,
 equivalent `--laddr` and `--lport` options can be used to avoid
 address conflicts.
+
+## Directory contents
+Path | Description
+-----|------------
+`cx4013/`|`cx4013` Python package.
+`cx4013/client`|Booking client & callback service implementation
+`cx4013/rpc`|Protocol implementation (proxy/skeleton, routing, packet generation)
+`cx4013/serialization`|Serialization & Deserialization routines, data types
+`cx4013/server`|Booking service & callback client implementation
+`diagrams`|Source for report diagrams
+`tests`|Tests for `cx4013`.
+
+## Developers
+
+Celine Wong Si Lin, Ang Zhan Phung, Shenghao Yang
