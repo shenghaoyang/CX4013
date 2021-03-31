@@ -53,7 +53,7 @@ class BookingNotificationServerImpl(BookingNotificationServer):
         tranges = list(map(rpc_tr_as_dtrange, tranges))
 
         if action is Action.VALUES.CREATE:
-            self._last_notif = f"{facility} was booked from {tranges[0].start_str} to {tranges[0].start_str}."
+            self._last_notif = f"{facility} was booked from {tranges[0].start_str} to {tranges[0].end_str}."
         elif action is Action.VALUES.RELEASE:
             self._last_notif = f"{facility} is now available from {tranges[0].start_str} to {tranges[0].end_str}."
         elif action is Action.VALUES.MODIFY:

@@ -5,6 +5,7 @@ Main client interface REPL.
 """
 
 
+import asyncio
 import datetime
 from collections.abc import Sequence
 
@@ -19,6 +20,7 @@ from cx4013.rpc.protocol import RPCClient
 from cx4013.rpc.packet import InvocationSemantics
 from cx4013.client.notificationserver import BookingNotificationServerImpl
 from cx4013.client.hooks import RandomRequestReplyDropper
+from cx4013.rpc import exceptions as rpc_exceptions
 from cx4013.serialization.derived import String
 from cx4013.serialization.numeric import u8, u32, u64
 from cx4013.server.bookingserver import BookingServerProxy
@@ -118,6 +120,9 @@ class Repl:
         )
 
     async def _prompt_facility(self) -> str:
+        """
+        Prompt the client for a facility name.
+        """
         return await self._session.prompt_async(
             HTML("<i>Facility <b>name</b></i>? >>> "),
             validator=Validator.from_callable(lambda v: True),
@@ -160,6 +165,10 @@ class Repl:
         return set(DayOfWeek.VALUES[v.upper()] for v in dows.split())
 
     async def _prompt_time(self) -> datetime.datetime:
+        """
+        Prompt the client for a time within the week.
+        """
+
         def parse_time(s: str) -> datetime.datetime:
             t = START_DATE.strptime(s, "%H:%M")
             return START_DATE.replace(hour=t.hour, minute=t.minute)
@@ -187,6 +196,10 @@ class Repl:
         return dt
 
     async def _prompt_bid(self) -> str:
+        """
+        Prompt the client for a booking ID.
+        """
+
         class BookingIDValidator(Validator):
             def validate(self, document: Document):
                 s = document.text
@@ -201,6 +214,10 @@ class Repl:
         )
 
     async def _prompt_monitoring_time(self) -> u32:
+        """
+        Prompt the client for a monitoring time, in seconds.
+        """
+
         class U32Validator(Validator):
             def validate(self, document: Document):
                 s = document.text
@@ -223,6 +240,10 @@ class Repl:
         )
 
     async def _prompt_timedelta(self) -> TimeDelta:
+        """
+        Prompt the client for a time offset.
+        """
+
         class TimeDeltaValidator(Validator):
             def validate(self, document: Document):
                 s = document.text
@@ -268,6 +289,10 @@ class Repl:
         return TimeDelta(hours=hours, minutes=minutes, negative=neg)
 
     async def _prompt_probability(self) -> float:
+        """
+        Prompt the client for a probability value within ``[0, 1]``.
+        """
+
         def probability_validator(s: str) -> bool:
             try:
                 v = float(s)
@@ -285,6 +310,9 @@ class Repl:
         )
 
     def _print_error(self, s: str):
+        """
+        Show an error on the screen.
+        """
         clear()
         print(HTML(f"<ansired>ERROR:</ansired> <u>{s}</u>"))
 
@@ -327,6 +355,9 @@ class Repl:
         self._known_facilities.add(name)
 
     async def book(self):
+        """
+        Book handles the "book" command.
+        """
         name = await self._prompt_facility()
         print(HTML("<u>Enter <b>start</b> time</u>:"))
         start = await self._prompt_time()
@@ -349,6 +380,9 @@ class Repl:
         )
 
     async def lookup(self):
+        """
+        lookup handles the "lookup" command.
+        """
         bid = await self._prompt_bid()
 
         res = await self._proxy.lookup(String(bid))
@@ -370,6 +404,9 @@ class Repl:
         )
 
     async def swap(self):
+        """
+        swap handles the "swap" command.
+        """
         print(HTML("<u>Enter <b>first</b> booking</u>:"))
         bid1 = await self._prompt_bid()
         print(HTML("<u>Enter <b>second</b> booking</u>"))
@@ -389,6 +426,9 @@ class Repl:
         )
 
     async def modify(self):
+        """
+        modify handles the "modify" command.
+        """
         bid = await self._prompt_bid()
         shift = await self._prompt_timedelta()
 
@@ -407,6 +447,9 @@ class Repl:
         )
 
     async def cancel(self):
+        """
+        cancel handles the "cancel" command.
+        """
         bid = await self._prompt_bid()
 
         res = await self._proxy.cancel(String(bid))
@@ -421,6 +464,9 @@ class Repl:
         )
 
     async def list_facilities(self):
+        """
+        list_facilities handles the "list" command.
+        """
         res = await self._proxy.facilities()
 
         facilities = tuple(map(str, res))
@@ -436,6 +482,9 @@ class Repl:
         self._known_facilities.update(facilities)
 
     async def register_notifications(self):
+        """
+        register_notifications handles the "register" command.
+        """
         facility = await self._prompt_facility()
         monitoring_time = await self._prompt_monitoring_time()
 
@@ -457,6 +506,9 @@ class Repl:
         )
 
     async def set_invocation_semantics(self):
+        """
+        set_invocation_semantics handles the "semantics" command.
+        """
         names = list(v.name for v in InvocationSemantics)
         completer = WordCompleter(names, ignore_case=True)
 
@@ -475,6 +527,10 @@ class Repl:
         ]
 
     async def set_timeout_retry(self):
+        """
+        set_timeout_retry handles the "tretry" command.
+        """
+
         class TimeoutValidator(Validator):
             def validate(self, document: Document):
                 s = document.text
@@ -521,18 +577,29 @@ class Repl:
         self._client.retries = retries
 
     async def set_client_server_drop_probability(self):
+        """
+        set_client_server_drop_probability handles the "csprob" command.
+        """
         print(
             HTML(f"Current probability is <ansired>{self._droppers[0].prob}</ansired>.")
         )
         self._droppers[0].prob = await self._prompt_probability()
 
     async def set_server_client_drop_probability(self):
+        """
+        set_server_client_drop_probability handles the "scprob" command.
+        """
         print(
             HTML(f"Current probability is <ansired>{self._droppers[1].prob}</ansired>.")
         )
         self._droppers[1].prob = await self._prompt_probability()
 
     async def run(self):
+        """
+        Run the REPL.
+
+        Returns when the user selects exit or EOF is entered.
+        """
         completer = WordCompleter(list(self.LABELS))
         validator = Validator.from_callable(
             self._commands.__contains__, "not a valid command"
@@ -576,6 +643,25 @@ class Repl:
                     return
 
                 await self._commands[cmd]()
+            except asyncio.TimeoutError:
+                self._print_error("client: RPC timed out")
+            except rpc_exceptions.ArgumentDeserializationError:
+                self._print_error("server: could not deserialize arguments")
+            except rpc_exceptions.ArgumentSerializationError:
+                self._print_error("client: could not serialize arguments")
+            except rpc_exceptions.BadRequestError:
+                self._print_error("server: client sent bad request")
+            except rpc_exceptions.InternalServerFailureError:
+                self._print_error("server: internal server failure")
+            except rpc_exceptions.InvalidReplyError:
+                self._print_error("client: server sent bad reply")
+            except rpc_exceptions.MethodNotFoundError:
+                self._print_error("server: method / procedure not found")
+            except rpc_exceptions.ReturnDeserializationError:
+                self._print_error("client: could not deserialize return value")
+            except rpc_exceptions.ConnectionClosedError:
+                self._print_error("connection closed / reset - exiting")
+                return
             except KeyboardInterrupt:
                 continue
             except EOFError:
