@@ -58,8 +58,8 @@ class BookingNotificationServerImpl(BookingNotificationServer):
             self._last_notif = f"{facility} is now available from {tranges[0].start_str} to {tranges[0].end_str}."
         elif action is Action.VALUES.MODIFY:
             self._last_notif = (
-                f"{facility} was booked from {tranges[0].start_str} to {tranges[0].end_str}.\n"
-                f"{facility} is now available from {tranges[1].start_str} to {tranges[1].end_str}."
+                f"A booking for {facility} had its time range modified from\n{tranges[0].start_str} to {tranges[0].end_str} "
+                f"to a new time range, {tranges[1].start_str} to {tranges[1].end_str}."
             )
 
         return Void()
