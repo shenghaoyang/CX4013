@@ -364,7 +364,12 @@ class Repl:
         print(HTML("<u>Enter <b>end</b> time</u>"))
         end = await self._prompt_time()
 
-        rpc_tr = dtrange_as_rpc_tr(DateTimeRange(start, end))
+        try:
+            rpc_tr = dtrange_as_rpc_tr(DateTimeRange(start, end))
+        except ValueError as e:
+            self._print_error(f"invalid time range: {e.args[0]}")
+            return
+
         res = await self._proxy.book(String(name), rpc_tr)
 
         if "error" in res:
